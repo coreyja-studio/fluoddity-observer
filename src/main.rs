@@ -1,3 +1,5 @@
+mod admin;
+mod auth;
 mod catalog;
 mod db;
 mod ingest;
@@ -28,6 +30,7 @@ pub enum MediaMode {
 pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
+    pub oauth: auth::AtriumOAuthClient,
 }
 
 type SharedState = Arc<AppState>;
@@ -175,7 +178,18 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         tokio::spawn(ingest::run(pool.clone(), poll_secs));
     }
 
-    let state: SharedState = Arc::new(AppState { pool, media_mode });
+    auth::seed_curators(&pool).await?;
+    // Loopback OAuth client: the callback host must stay 127.0.0.1 until the
+    // hosted (confidential-client) metadata lands with a public domain.
+    let callback_url = std::env::var("PCG_OAUTH_CALLBACK_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/admin/oauth/callback"));
+    let oauth = auth::build_oauth_client(pool.clone(), callback_url)?;
+
+    let state: SharedState = Arc::new(AppState {
+        pool,
+        media_mode,
+        oauth,
+    });
 
     let app = Router::new()
         .route("/", get(index))
@@ -183,7 +197,25 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/archive", get(archive))
         .route("/specimen/{rkey}", get(specimen))
         .route("/colophon", get(colophon))
+        .route("/admin", get(admin::dashboard))
+        .route(
+            "/admin/login",
+            get(admin::login_page).post(admin::login_submit),
+        )
+        .route("/admin/oauth/callback", get(admin::oauth_callback))
+        .route("/admin/logout", axum::routing::post(admin::logout))
+        .route("/admin/hang", axum::routing::post(admin::hang))
+        .route("/admin/unhang", axum::routing::post(admin::unhang))
+        .route(
+            "/admin/rooms/create",
+            axum::routing::post(admin::create_room),
+        )
+        .route(
+            "/admin/room/{slug}/update",
+            axum::routing::post(admin::update_room),
+        )
         .route("/static/style.css", get(stylesheet))
+        .route("/static/admin.css", get(admin_css))
         .route("/static/gallery.js", get(gallery_js))
         .nest_service("/media", ServeDir::new(media_dir()))
         .with_state(state);
@@ -240,6 +272,13 @@ async fn stylesheet() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
         include_str!("../static/style.css"),
+    )
+}
+
+async fn admin_css() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../static/admin.css"),
     )
 }
 

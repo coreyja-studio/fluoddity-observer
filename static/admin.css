@@ -1,0 +1,86 @@
+/* The curator's desk — utilitarian, same paper. */
+
+.admin .masthead { margin-bottom: 1.4rem; }
+
+.signed-in {
+  text-align: center;
+  font-style: italic;
+  color: var(--ink-soft);
+}
+
+.login-box { max-width: 420px; margin: 2rem auto; text-align: center; }
+
+.admin-form {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0.8rem 0;
+}
+
+.admin-form input[type="text"] {
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--rule);
+  background: #fffdf5;
+  color: var(--ink);
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.admin-form button,
+.inline-form button,
+.inline-form select {
+  font-family: inherit;
+  font-size: 0.95rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--ink);
+  background: var(--paper-deep);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.admin-form button:hover, .inline-form button:hover { background: #fffdf5; }
+
+.inline-form { display: inline-flex; gap: 0.4rem; align-items: center; margin: 0; }
+
+.inline-form select { padding: 0.35rem 0.4rem; max-width: 180px; }
+
+.link-button {
+  border: none !important;
+  background: none !important;
+  color: var(--accent) !important;
+  text-decoration: underline;
+  padding: 0 !important;
+  font-size: 0.95rem;
+}
+
+.admin-room {
+  border: 1px solid var(--rule);
+  padding: 0.8rem 1rem;
+  margin: 1rem auto;
+  max-width: 760px;
+  background: rgba(255, 252, 240, 0.4);
+}
+
+.room-edit { justify-content: flex-start; }
+
+.admin-room-specimens, .unhung-list { margin-top: 0.5rem; }
+
+.admin-specimen {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px dotted rgba(138, 122, 92, 0.4);
+  flex-wrap: wrap;
+}
+
+.admin-specimen a { flex: 1 1 240px; min-width: 0; }
+
+.admin-date { font-size: 0.85rem; color: var(--ink-soft); font-style: italic; }
+
+.room-create { max-width: 760px; margin: 1.4rem auto; }
+
+.unhung-list { max-width: 760px; margin: 0 auto; }

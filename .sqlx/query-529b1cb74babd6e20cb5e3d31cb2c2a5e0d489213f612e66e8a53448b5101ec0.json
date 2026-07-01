@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM room_specimens WHERE room_slug = $1 AND rkey = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "529b1cb74babd6e20cb5e3d31cb2c2a5e0d489213f612e66e8a53448b5101ec0"
+}

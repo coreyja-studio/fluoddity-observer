@@ -27,8 +27,14 @@ Born from [a wish by @norvid-studies](https://bsky.app/profile/norvid-studies.bs
 ## Running
 
 ```bash
-cargo run
+createdb paperclips_gallery
+sqlx migrate run          # or just start the app; migrations run on boot
+cargo run -- import       # seed from metadata.jsonl + catalog.json
+cargo run                 # serve
 ```
+
+Subcommands: `serve` (default), `import`, `ingest-once` (one manual poll for
+new posts; the server also polls every `PCG_POLL_SECS`, default 300).
 
 Environment:
 
@@ -38,12 +44,32 @@ Environment:
 | `PCG_CATALOG` | `catalog.json` | curated catalog path |
 | `PCG_MEDIA_DIR` | `/home/coreyja.linux/paperclips-media/oops` | local media archive |
 | `PCG_MEDIA_MODE` | `local` | `local` (mp4s from `PCG_MEDIA_DIR`) or `cdn` (Bluesky video CDN, HLS via hls.js — no media hosting needed) |
+| `DATABASE_URL` | (required) | Postgres connection string (see `.mise.toml`) |
+| `PCG_POLL_SECS` | `300` | ingest poll interval; `0` disables |
+| `PCG_ADMIN_DIDS` | — | comma-separated `did[=handle]` curator roster seed |
+| `PCG_OAUTH_CALLBACK_URL` | `http://127.0.0.1:{port}/admin/oauth/callback` | loopback OAuth redirect |
 
 In `local` mode, generate poster frames once (requires `ffmpeg`):
 
 ```bash
 scripts/generate_posters.py [media-dir]
 ```
+
+## The curator's desk (admin)
+
+`/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in
+with your handle, approve on your own PDS, and the site checks your DID
+against the curator roster (`curators` table). We use OAuth for identity
+only: the atproto tokens are discarded the moment the DID is verified.
+
+- Roster: the artist DID (from `gallery_meta`) is always on it; seed others
+  with `PCG_ADMIN_DIDS="did:plc:xyz=handle,did:plc:abc"`.
+- Capabilities: open/edit rooms, hang specimens into rooms, take them down.
+  Changes are live on the public site immediately.
+- The OAuth client currently runs in atproto *loopback* mode, so the browser
+  must reach the site via `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>`
+  then http://127.0.0.1:4601/admin). The hosted confidential-client metadata
+  (public client_id URL + JWKS) lands together with hosting.
 
 ## Curation
 

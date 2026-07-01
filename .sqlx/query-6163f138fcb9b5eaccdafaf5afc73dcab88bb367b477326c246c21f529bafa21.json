@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO oauth_states (key, data) VALUES ($1, $2)\n             ON CONFLICT (key) DO UPDATE SET data = EXCLUDED.data",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6163f138fcb9b5eaccdafaf5afc73dcab88bb367b477326c246c21f529bafa21"
+}

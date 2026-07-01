@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO curators (did, handle) VALUES ($1, $2)\n             ON CONFLICT (did) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e72cd2b3642ea631f1683f57728104543d446442ddcc968e2687548464fc0b44"
+}
