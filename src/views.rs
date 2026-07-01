@@ -3,6 +3,8 @@ use maud::{DOCTYPE, Markup, html};
 use crate::{
     Ctx,
     catalog::{Family, Room, Specimen, pretty_date, pretty_month, roman},
+    db::GuestRoomRow,
+    threads::ThreadRoom,
 };
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Caveat:wght@400;600&display=swap";
@@ -66,7 +68,7 @@ fn page_header(ctx: &Ctx, plate: &str) -> Markup {
     }
 }
 
-pub fn index(ctx: &Ctx) -> Markup {
+pub fn index(ctx: &Ctx, guest_rooms: &[GuestRoomRow]) -> Markup {
     let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
     base(
@@ -117,6 +119,26 @@ pub fn index(ctx: &Ctx) -> Markup {
                                         (family.title)
                                         span .count { " · " (family.rkeys.len()) " forms" }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                @if !guest_rooms.is_empty() {
+                    section .guest-rooms {
+                        h2 .room-label { "Guest Rooms" }
+                        p .room-sublabel {
+                            "rooms curated by others — each one is a Bluesky thread, rendered live; "
+                            "edit the thread and the room follows"
+                        }
+                        ul .lineage-list {
+                            @for gr in guest_rooms {
+                                li {
+                                    a href=(format!("/guest/{}/{}", gr.author_handle, gr.rkey)) {
+                                        (gr.title)
+                                    }
+                                    span .count { " · hung by @" (gr.author_handle) }
                                 }
                             }
                         }
@@ -325,6 +347,75 @@ pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
                     } @else {
                         a href="/archive" { "← back to the archive" }
                     }
+                }
+            }
+        },
+    )
+}
+
+pub fn guest_room(ctx: &Ctx, room: &ThreadRoom) -> Markup {
+    base(
+        &format!("{} — Fluoddity", room.title),
+        html! {
+            main .sheet {
+                (page_header(ctx, "Guest Room"))
+
+                section {
+                    h2 .room-label { (room.title) }
+                    p .room-sublabel {
+                        "a room curated by "
+                        a href=(format!("https://bsky.app/profile/{}", room.author_handle)) {
+                            (room.author_display)
+                        }
+                        " — it renders live from "
+                        a href=(room.thread_url()) { "their thread" }
+                        "; when the thread grows, so does the room"
+                    }
+
+                    @if !room.intro.trim().is_empty() {
+                        blockquote .origin-note {
+                            p { "“" (room.intro) "”" }
+                            footer { "— @" (room.author_handle) ", at the door" }
+                        }
+                    }
+
+                    div .plate-grid {
+                        @for (i, entry) in room
+                            .entries
+                            .iter()
+                            .filter_map(|e| ctx.catalog.archive.get(&e.specimen_rkey).map(|s| (e, s)))
+                            .enumerate()
+                        {
+                            @let (entry, s) = entry;
+                            figure .specimen {
+                                (specimen_video(ctx, s))
+                                figcaption {
+                                    p .fig-no { "Fig. " (i + 1) }
+                                    p .fig-name {
+                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                    }
+                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    @if entry.note.trim() != s.caption.trim() && !entry.note.trim().is_empty() {
+                                        p .curator-note {
+                                            "“" (entry.note) "”"
+                                            span .margin-handle { " — @" (room.author_handle) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    @if room.entries.iter().all(|e| ctx.catalog.archive.get(&e.specimen_rkey).is_none()) {
+                        p .room-sublabel {
+                            "This thread doesn't reference any of the artist's specimens yet. "
+                            "Quote-post or link his work in the thread and it will hang here."
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href="/" { "← back to contents" }
                 }
             }
         },

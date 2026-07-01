@@ -55,6 +55,18 @@ In `local` mode, generate poster frames once (requires `ffmpeg`):
 scripts/generate_posters.py [media-dir]
 ```
 
+## Guest rooms: threads ARE rooms
+
+Anyone can curate a room by posting a **Bluesky thread**: quote-post or link
+the artist's work, with your own commentary. The thread head renders live at
+`/guest/{handle}/{rkey}` — your posts become the walk-through, your words the
+wall labels. Edit the thread, and the room follows (5-minute cache).
+
+Only the artist's specimens render (quote-posts of his work, links to his
+posts, or — for his own threads — his video posts directly), so a thread
+can't inject foreign content. Roster curators can *register* a thread from
+the desk to hang it on the front page under Guest Rooms.
+
 ## The curator's desk (admin)
 
 `/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in

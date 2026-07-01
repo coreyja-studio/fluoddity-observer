@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO guest_rooms (author_did, rkey, author_handle, title, added_by)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (author_did, rkey)\n         DO UPDATE SET author_handle = EXCLUDED.author_handle, title = EXCLUDED.title",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e36150d18eb0327870ac3b6d09ab17010ddd0c303b53558551b126e1df54a05e"
+}

@@ -3,6 +3,7 @@ mod auth;
 mod catalog;
 mod db;
 mod ingest;
+mod threads;
 mod views;
 
 use std::sync::Arc;
@@ -31,6 +32,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
     pub oauth: auth::AtriumOAuthClient,
+    pub threads: threads::ThreadFetcher,
 }
 
 type SharedState = Arc<AppState>;
@@ -185,16 +187,21 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/admin/oauth/callback"));
     let oauth = auth::build_oauth_client(pool.clone(), callback_url)?;
 
+    let http = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
     let state: SharedState = Arc::new(AppState {
         pool,
         media_mode,
         oauth,
+        threads: threads::ThreadFetcher::new(http),
     });
 
     let app = Router::new()
         .route("/", get(index))
         .route("/room/{slug}", get(room))
         .route("/archive", get(archive))
+        .route("/guest/{author}/{rkey}", get(guest_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/colophon", get(colophon))
         .route("/admin", get(admin::dashboard))
@@ -209,6 +216,14 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route(
             "/admin/rooms/create",
             axum::routing::post(admin::create_room),
+        )
+        .route(
+            "/admin/guest-rooms/add",
+            axum::routing::post(admin::add_guest_room),
+        )
+        .route(
+            "/admin/guest-rooms/remove",
+            axum::routing::post(admin::remove_guest_room),
         )
         .route(
             "/admin/room/{slug}/update",
@@ -232,7 +247,24 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 }
 
 async fn index(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
-    Ok(views::index(&state.ctx().await?))
+    let guest_rooms = db::guest_rooms(&state.pool).await?;
+    Ok(views::index(&state.ctx().await?, &guest_rooms))
+}
+
+async fn guest_room(
+    State(state): State<SharedState>,
+    Path((author, rkey)): Path<(String, String)>,
+) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    let artist = &ctx.catalog.editorial.artist;
+    let room = state
+        .threads
+        .fetch(&author, &rkey, &artist.did, &artist.handle)
+        .await?;
+    Ok(match room {
+        Some(room) => views::guest_room(&ctx, &room).into_response(),
+        None => not_found(),
+    })
 }
 
 async fn room(

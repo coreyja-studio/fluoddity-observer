@@ -149,22 +149,7 @@ impl Specimen {
         if first_line.is_empty() {
             return format!("Untitled · {}", pretty_date(&self.date));
         }
-        const MAX: usize = 48;
-        if first_line.chars().count() <= MAX {
-            return first_line.to_string();
-        }
-        let mut label = String::new();
-        for word in first_line.split_whitespace() {
-            if label.chars().count() + word.chars().count() + 1 > MAX {
-                break;
-            }
-            if !label.is_empty() {
-                label.push(' ');
-            }
-            label.push_str(word);
-        }
-        label.push('…');
-        label
+        ellipsize(first_line, 48)
     }
 
     /// True when the caption is short enough that the label already shows all
@@ -172,6 +157,26 @@ impl Specimen {
     pub fn label_is_full_caption(&self) -> bool {
         self.caption.trim() == self.label()
     }
+}
+
+/// Truncate to a word boundary within `max` chars, appending an ellipsis.
+pub fn ellipsize(text: &str, max: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    for word in text.split_whitespace() {
+        if out.chars().count() + word.chars().count() + 1 > max {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out.push('…');
+    out
 }
 
 pub fn pretty_date(iso: &str) -> String {

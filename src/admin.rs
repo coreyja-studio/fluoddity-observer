@@ -191,6 +191,7 @@ pub async fn dashboard(
     curator: Curator,
 ) -> Result<Markup, AdminError> {
     let catalog = db::load_catalog(&state.pool).await?;
+    let guest_rooms = db::guest_rooms(&state.pool).await?;
     Ok(admin_base(
         "Rooms",
         html! {
@@ -230,6 +231,15 @@ pub async fn dashboard(
                     input type="text" name="description" placeholder="description (vibe, in the artist's words)";
                     button type="submit" { "open a new room" }
                 }
+            }
+
+            section {
+                h2 .room-label { "Guest Rooms" }
+                p .room-sublabel {
+                    "a guest room is a Bluesky thread — paste the head post's URL to hang it "
+                    "on the front page; it renders live from the thread"
+                }
+                (guest_rooms_section(&guest_rooms))
             }
 
             section {
@@ -278,6 +288,26 @@ fn unclassified_list(catalog: &Catalog) -> Markup {
             @if unhung.len() > 60 {
                 p .room-sublabel { "… and " (unhung.len() - 60) " more, older" }
             }
+        }
+    }
+}
+
+fn guest_rooms_section(guest_rooms: &[crate::db::GuestRoomRow]) -> Markup {
+    html! {
+        @for gr in guest_rooms {
+            div .admin-specimen {
+                a href=(format!("/guest/{}/{}", gr.author_handle, gr.rkey)) { (gr.title) }
+                span .admin-date { "@" (gr.author_handle) }
+                form method="post" action="/admin/guest-rooms/remove" .inline-form {
+                    input type="hidden" name="author_did" value=(gr.author_did);
+                    input type="hidden" name="rkey" value=(gr.rkey);
+                    button type="submit" .link-button title="take down" { "✕" }
+                }
+            }
+        }
+        form method="post" action="/admin/guest-rooms/add" .admin-form .room-create {
+            input type="text" name="url" placeholder="https://bsky.app/profile/curator/post/…" required;
+            button type="submit" { "hang this thread" }
         }
     }
 }
@@ -375,6 +405,93 @@ pub async fn update_room(
     Ok(Redirect::to("/admin"))
 }
 
+#[derive(serde::Deserialize)]
+pub struct GuestRoomAddForm {
+    url: String,
+}
+
+pub async fn add_guest_room(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<GuestRoomAddForm>,
+) -> Result<Response, AdminError> {
+    let Some((author, rkey)) = parse_thread_url(form.url.trim()) else {
+        return Ok((
+            axum::http::StatusCode::BAD_REQUEST,
+            "That doesn't look like a Bluesky post URL.",
+        )
+            .into_response());
+    };
+
+    let catalog = db::load_catalog(&state.pool).await?;
+    let artist = &catalog.editorial.artist;
+    let Some(room) = state
+        .threads
+        .fetch(&author, &rkey, &artist.did, &artist.handle)
+        .await?
+    else {
+        return Ok((
+            axum::http::StatusCode::BAD_REQUEST,
+            "Couldn't fetch that thread from Bluesky.",
+        )
+            .into_response());
+    };
+
+    sqlx::query!(
+        "INSERT INTO guest_rooms (author_did, rkey, author_handle, title, added_by)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (author_did, rkey)
+         DO UPDATE SET author_handle = EXCLUDED.author_handle, title = EXCLUDED.title",
+        room.author_did,
+        room.rkey,
+        room.author_handle,
+        room.title,
+        curator.did,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, author = %room.author_handle, rkey = %room.rkey, "guest room hung");
+    Ok(Redirect::to("/admin").into_response())
+}
+
+#[derive(serde::Deserialize)]
+pub struct GuestRoomRemoveForm {
+    author_did: String,
+    rkey: String,
+}
+
+pub async fn remove_guest_room(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<GuestRoomRemoveForm>,
+) -> Result<Redirect, AdminError> {
+    sqlx::query!(
+        "DELETE FROM guest_rooms WHERE author_did = $1 AND rkey = $2",
+        form.author_did,
+        form.rkey,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, "guest room taken down");
+    Ok(Redirect::to("/admin"))
+}
+
+/// Accepts bsky.app post URLs or at-uris; returns (author, rkey).
+pub fn parse_thread_url(url: &str) -> Option<(String, String)> {
+    if let Some(rest) = url.strip_prefix("at://") {
+        let mut parts = rest.splitn(3, '/');
+        let (author, collection, rkey) = (parts.next()?, parts.next()?, parts.next()?);
+        return (collection == "app.bsky.feed.post")
+            .then(|| (author.to_string(), rkey.to_string()));
+    }
+    let rest = url
+        .strip_prefix("https://bsky.app/profile/")
+        .or_else(|| url.strip_prefix("http://bsky.app/profile/"))?;
+    let (author, rest) = rest.split_once("/post/")?;
+    let rkey = rest.split(['?', '/', '#']).next()?;
+    (!author.is_empty() && !rkey.is_empty()).then(|| (author.to_string(), rkey.to_string()))
+}
+
 pub fn slugify(title: &str) -> String {
     let mut slug = String::new();
     let mut last_dash = true;
@@ -393,6 +510,21 @@ pub fn slugify(title: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_thread_url_accepts_web_and_at_uris() {
+        assert_eq!(
+            parse_thread_url(
+                "https://bsky.app/profile/norvid-studies.bsky.social/post/3mpli4fvzns22"
+            ),
+            Some(("norvid-studies.bsky.social".into(), "3mpli4fvzns22".into()))
+        );
+        assert_eq!(
+            parse_thread_url("at://did:plc:abc/app.bsky.feed.post/3xyz"),
+            Some(("did:plc:abc".into(), "3xyz".into()))
+        );
+        assert_eq!(parse_thread_url("https://example.com/nope"), None);
+    }
 
     #[test]
     fn slugify_handles_punctuation_and_case() {
