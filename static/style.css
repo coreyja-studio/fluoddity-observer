@@ -1,0 +1,423 @@
+:root {
+  --paper: #f2e9d4;
+  --paper-deep: #e9dcc0;
+  --ink: #2b2418;
+  --ink-soft: #5a4d38;
+  --rule: #8a7a5c;
+  --accent: #7a2e1d;
+  --night: #050403;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper-deep);
+  color: var(--ink);
+  font-family: 'EB Garamond', Georgia, serif;
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+.sheet {
+  max-width: 1020px;
+  margin: 1rem auto 2.5rem;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(255, 252, 240, 0.55), transparent 60%),
+    var(--paper);
+  box-shadow: 0 2px 6px rgba(43, 36, 24, 0.25), 0 18px 50px rgba(43, 36, 24, 0.28);
+  padding: 2.2rem 1.25rem 3rem;
+  position: relative;
+}
+
+/* double-rule plate border */
+.sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0.7rem;
+  border: 1px solid var(--rule);
+  outline: 3px double var(--rule);
+  outline-offset: 4px;
+  pointer-events: none;
+}
+
+/* ---- masthead ---- */
+
+.masthead { text-align: center; margin-bottom: 2.2rem; }
+
+.plate-no {
+  font-family: 'IM Fell English', serif;
+  letter-spacing: 0.35em;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+.masthead h1 {
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  font-size: clamp(2.2rem, 7vw, 3rem);
+  margin: 0.35rem 0 0.1rem;
+  letter-spacing: 0.02em;
+}
+
+.masthead h1 a { color: inherit; text-decoration: none; }
+
+.subtitle {
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.observed-by { font-size: 0.98rem; color: var(--ink-soft); margin: 0.2rem 0 0; }
+
+.fleuron { color: var(--accent); font-size: 1.1rem; letter-spacing: 0.8em; margin: 0.7rem 0 0; }
+
+/* ---- section labels ---- */
+
+.room-label {
+  text-align: center;
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  font-size: 1.2rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin: 2.2rem 0 0.3rem;
+}
+
+.room-sublabel {
+  text-align: center;
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 0.98rem;
+  margin: 0 auto 1.6rem;
+  max-width: 52ch;
+}
+
+/* ---- origin note ---- */
+
+.origin-note {
+  font-family: 'Caveat', cursive;
+  font-size: 1.35rem;
+  line-height: 1.3;
+  color: var(--accent);
+  max-width: 46ch;
+  margin: 0 auto;
+  transform: rotate(-0.6deg);
+}
+
+.origin-note p { margin: 0; }
+
+.origin-note footer {
+  font-size: 1.05rem;
+  color: var(--ink-soft);
+  text-align: right;
+  margin-top: 0.3rem;
+}
+
+/* ---- contents (index) ---- */
+
+.contents-row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 0.6rem;
+  margin: 0 auto;
+  max-width: 780px;
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid rgba(138, 122, 92, 0.35);
+}
+
+.contents-row:last-of-type { border-bottom: none; }
+
+.contents-row:hover { background: rgba(255, 252, 240, 0.5); }
+
+.contents-thumbs { display: flex; gap: 4px; flex-shrink: 0; }
+
+.contents-thumbs img {
+  width: 62px;
+  height: 62px;
+  object-fit: cover;
+  background: #0c0a07;
+  border: 1px solid var(--ink);
+}
+
+.contents-thumbs img:nth-child(2) { display: none; }
+.contents-thumbs img:nth-child(3) { display: none; }
+
+.contents-text h3 { margin: 0; font-weight: 500; font-size: 1.2rem; }
+
+.contents-text .roman {
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  color: var(--accent);
+}
+
+.contents-text p { margin: 0.1rem 0 0; font-style: italic; color: var(--ink-soft); font-size: 0.95rem; }
+
+.contents-text .count { font-style: normal; font-size: 0.85rem; letter-spacing: 0.08em; }
+
+/* ---- lineage list (index) ---- */
+
+.lineage-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto;
+  max-width: 780px;
+  text-align: center;
+}
+
+.lineage-list li { margin: 0.45rem 0; }
+
+.lineage-list a { font-size: 1.1rem; }
+
+.lineage-list .count { color: var(--ink-soft); font-size: 0.9rem; }
+
+.colophon-link { text-align: center; margin-top: 2.5rem; font-style: italic; }
+
+.archive-link { text-align: center; font-size: 1.1rem; }
+
+/* ---- archive ledger ---- */
+
+.archive-month {
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  font-size: 1.05rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-align: center;
+  margin: 2.2rem 0 1rem;
+}
+
+.archive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 1.3rem 1rem;
+}
+
+.archive-item {
+  text-decoration: none;
+  color: inherit;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.archive-item img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #0c0a07;
+  border: 1px solid var(--ink);
+  padding: 4px;
+  margin-bottom: 0.35rem;
+  transition: transform 0.2s ease;
+}
+
+.archive-item:hover img { transform: translateY(-2px); }
+
+.archive-label { display: block; line-height: 1.25; }
+
+.archive-date { display: block; font-style: italic; color: var(--ink-soft); font-size: 0.78rem; }
+
+/* ---- plate grid (room) ---- */
+
+.plate-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2.4rem 2.2rem;
+}
+
+.specimen { margin: 0; text-align: center; }
+
+.specimen-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #0c0a07;
+  padding: 9px;
+  border: 1px solid var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 233, 212, 0.15), 0 3px 12px rgba(43, 36, 24, 0.35);
+  cursor: zoom-in;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.specimen-video:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 0 0 1px rgba(242, 233, 212, 0.2), 0 10px 26px rgba(43, 36, 24, 0.45);
+}
+
+.specimen figcaption { margin-top: 0.85rem; }
+
+.fig-no {
+  font-family: 'IM Fell English', serif;
+  font-size: 0.78rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0;
+}
+
+.fig-name { font-size: 1.3rem; font-weight: 500; margin: 0.1rem 0 0; }
+
+.fig-name a { color: inherit; text-decoration: none; }
+
+.fig-name a:hover { color: var(--accent); }
+
+.fig-date { font-style: italic; color: var(--ink-soft); font-size: 0.95rem; margin: 0.15rem 0 0; }
+
+.fig-more { margin: 0.3rem 0 0; font-size: 0.95rem; }
+
+.room-nav { text-align: center; margin-top: 2.6rem; }
+
+/* ---- specimen page ---- */
+
+.specimen-solo { max-width: 720px; margin: 0 auto; }
+
+.fig-name-big { font-size: 1.6rem; font-weight: 500; margin: 0.9rem 0 0; }
+
+.field-note { max-width: 620px; margin: 2rem auto 0; }
+
+.family-title {
+  font-family: 'IM Fell English', serif;
+  font-weight: 400;
+  font-size: 0.95rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0 0 0.7rem;
+}
+
+.caption-verbatim {
+  margin: 0;
+  font-size: 1.12rem;
+  white-space: pre-line;
+  border-left: 2px solid var(--rule);
+  padding-left: 1rem;
+}
+
+.wall-label { text-align: center; margin-top: 1.8rem; }
+
+.provenance {
+  font-family: 'Caveat', cursive;
+  font-size: 1.15rem;
+  color: var(--accent);
+  transform: rotate(-1.2deg);
+  display: inline-block;
+  margin: 0;
+}
+
+.source-link { margin: 0.4rem 0 0; font-size: 0.98rem; }
+
+.margin-notes { max-width: 560px; margin: 2.2rem auto 0; }
+
+.margin-note {
+  font-family: 'Caveat', cursive;
+  font-size: 1.3rem;
+  line-height: 1.25;
+  color: #4a5568;
+  margin: 0.7rem 0;
+  transform: rotate(-0.8deg);
+}
+
+.margin-note:nth-child(odd) { transform: rotate(0.7deg); }
+
+.margin-handle { font-size: 1rem; color: var(--ink-soft); }
+
+/* ---- lineage strip ---- */
+
+.family { margin-top: 2.4rem; }
+
+.family-strip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.family-member {
+  text-decoration: none;
+  color: var(--ink-soft);
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.family-member img {
+  display: block;
+  width: 104px;
+  height: 104px;
+  object-fit: cover;
+  background: #0c0a07;
+  border: 1px solid var(--ink);
+  padding: 4px;
+  margin-bottom: 3px;
+}
+
+.family-member.current img { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.family-arrow { color: var(--accent); font-size: 1.5rem; }
+
+/* ---- colophon ---- */
+
+.prose { max-width: 620px; margin: 0 auto; }
+
+.prose p { margin: 1rem 0; }
+
+.prose .origin-note { margin: 1.6rem auto; }
+
+/* ---- behold overlay ---- */
+
+#behold {
+  position: fixed;
+  inset: 0;
+  background: var(--night);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  cursor: zoom-out;
+}
+
+#behold.open { display: flex; }
+
+#behold video { max-width: 100vw; max-height: 100vh; width: 100%; height: 100%; object-fit: contain; }
+
+.behold-hint {
+  position: absolute;
+  bottom: 1rem;
+  left: 0;
+  right: 0;
+  text-align: center;
+  color: #b6a887;
+  font-style: italic;
+  font-size: 0.95rem;
+  opacity: 0.7;
+  margin: 0;
+  pointer-events: none;
+}
+
+body.beholding { overflow: hidden; }
+
+/* ---- wider screens ---- */
+
+@media (min-width: 640px) {
+  .sheet { margin: 3rem auto 5rem; padding: 3.2rem 3.4rem 4rem; }
+  .sheet::before { inset: 1.1rem; }
+  .plate-grid { grid-template-columns: repeat(2, 1fr); }
+  .contents-thumbs img { width: 74px; height: 74px; }
+  .contents-thumbs img:nth-child(2) { display: block; }
+}
+
+@media (min-width: 900px) {
+  .contents-thumbs img:nth-child(3) { display: block; }
+}
