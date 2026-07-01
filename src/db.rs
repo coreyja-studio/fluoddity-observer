@@ -287,6 +287,23 @@ pub async fn import(
     })
 }
 
+/// A registered guest room (a Bluesky thread hung on the front page).
+pub struct GuestRoomRow {
+    pub author_did: String,
+    pub author_handle: String,
+    pub rkey: String,
+    pub title: String,
+}
+
+pub async fn guest_rooms(pool: &PgPool) -> anyhow::Result<Vec<GuestRoomRow>> {
+    Ok(sqlx::query_as!(
+        GuestRoomRow,
+        "SELECT author_did, author_handle, rkey, title FROM guest_rooms ORDER BY added_at"
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,21 +369,4 @@ mod tests {
 
         std::fs::remove_dir_all(&dir).ok();
     }
-}
-
-/// A registered guest room (a Bluesky thread hung on the front page).
-pub struct GuestRoomRow {
-    pub author_did: String,
-    pub author_handle: String,
-    pub rkey: String,
-    pub title: String,
-}
-
-pub async fn guest_rooms(pool: &PgPool) -> anyhow::Result<Vec<GuestRoomRow>> {
-    Ok(sqlx::query_as!(
-        GuestRoomRow,
-        "SELECT author_did, author_handle, rkey, title FROM guest_rooms ORDER BY added_at"
-    )
-    .fetch_all(pool)
-    .await?)
 }

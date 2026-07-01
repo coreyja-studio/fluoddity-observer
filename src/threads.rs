@@ -150,14 +150,14 @@ fn extract_refs(post: &serde_json::Value, artist_did: &str, artist_handle: &str)
     if let Some(embed) = record.get("embed") {
         let embed_type = embed.get("$type").and_then(|t| t.as_str()).unwrap_or("");
         // Rule 1: the artist's own video post is itself a specimen.
-        if embed_type == "app.bsky.embed.video" && post_author == artist_did {
-            if let Some(rkey) = post
+        if embed_type == "app.bsky.embed.video"
+            && post_author == artist_did
+            && let Some(rkey) = post
                 .get("uri")
                 .and_then(|u| u.as_str())
                 .and_then(|u| u.rsplit('/').next())
-            {
-                refs.push(rkey.to_string());
-            }
+        {
+            refs.push(rkey.to_string());
         }
         // Rule 2: quote-posts of the artist's posts.
         let quoted_uri = match embed_type {
@@ -221,10 +221,13 @@ fn artist_post_rkey_from_web_url(
     (who == artist_did || who == artist_handle).then(|| rkey.to_string())
 }
 
+type CacheKey = (String, String);
+type CacheEntry = (Instant, Arc<ThreadRoom>);
+
 /// Live thread fetcher with a small TTL cache.
 pub struct ThreadFetcher {
     client: reqwest::Client,
-    cache: tokio::sync::Mutex<HashMap<(String, String), (Instant, Arc<ThreadRoom>)>>,
+    cache: tokio::sync::Mutex<HashMap<CacheKey, CacheEntry>>,
 }
 
 impl ThreadFetcher {
