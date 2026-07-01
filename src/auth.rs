@@ -27,7 +27,7 @@ use atrium_oauth::{
     },
 };
 use axum::{
-    extract::FromRequestParts,
+    extract::{FromRequestParts, OptionalFromRequestParts},
     http::request::Parts,
     response::{IntoResponse, Redirect, Response},
 };
@@ -323,5 +323,24 @@ impl FromRequestParts<crate::SharedState> for Curator {
                 Err(Redirect::to("/admin/login").into_response())
             }
         }
+    }
+}
+
+/// Optional variant: public pages can light up curator controls when a
+/// valid session cookie is present, without requiring one.
+impl OptionalFromRequestParts<crate::SharedState> for Curator {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &crate::SharedState,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        let jar = CookieJar::from_headers(&parts.headers);
+        let Some(token) = jar.get(SESSION_COOKIE).map(|c| c.value().to_string()) else {
+            return Ok(None);
+        };
+        Ok(curator_for_token(&state.pool, &token)
+            .await
+            .unwrap_or_default())
     }
 }

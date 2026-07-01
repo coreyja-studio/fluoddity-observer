@@ -69,6 +69,18 @@ posts, or — for his own threads — his video posts directly), so a thread
 can't inject foreign content. Roster curators register threads from the
 desk; viewing any thread as a room is permissionless.
 
+## Tags & lineages
+
+Specimens carry optional tags; tags of kind **lineage** get the
+evolution-strip treatment (a chronological family of mutating forms) on
+specimen pages and at `/tag/{tag}`. Tag sources:
+
+- **curator** — roster curators add/remove tags inline on specimen pages
+  (controls appear when signed in)
+- **post** — `#hashtags` in the artist's captions become tags automatically
+  (at import and on live ingest), so oops can tag from inside Bluesky
+- **community** — reserved for a community-notes-style flow later
+
 ## The curator's desk (admin)
 
 `/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in

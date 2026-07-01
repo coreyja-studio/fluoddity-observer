@@ -371,6 +371,59 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   transform: rotate(-0.8deg);
 }
 
+/* ---- tags ---- */
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1.6rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid var(--rule);
+  background: rgba(255, 252, 240, 0.55);
+  padding: 0.15rem 0.65rem;
+  font-size: 0.95rem;
+}
+
+.tag-chip a { text-decoration: none; }
+
+.tag-add input[type="text"] {
+  font-family: inherit;
+  font-size: 0.95rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--rule);
+  background: #fffdf5;
+  color: var(--ink);
+  width: 10rem;
+}
+
+.tag-add select, .tag-add button {
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--ink);
+  background: var(--paper-deep);
+  cursor: pointer;
+}
+
+.tag-row .inline-form { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0; }
+
+.tag-row .link-button {
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85rem;
+}
+
 /* ---- lineage strip ---- */
 
 .family { margin-top: 2.4rem; }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use sqlx::PgPool;
 
-use crate::catalog::{Archive, Artist, Catalog, Editorial, Family, MarginNote, Origin, Specimen};
+use crate::catalog::{Archive, Artist, Catalog, Editorial, MarginNote, Origin, Specimen, Tag};
 
 /// Load the full catalog (archive + editorial layer) from the database.
 ///
@@ -37,28 +37,17 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     })
     .collect();
 
-    let mut family_rkeys: HashMap<String, Vec<String>> = HashMap::new();
-    for row in
-        sqlx::query!("SELECT family_slug, rkey FROM family_members ORDER BY family_slug, position")
-            .fetch_all(pool)
-            .await?
-    {
-        family_rkeys
-            .entry(row.family_slug)
-            .or_default()
-            .push(row.rkey);
-    }
-
-    let families = sqlx::query!("SELECT slug, title FROM families ORDER BY position")
+    let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
+    for row in sqlx::query!("SELECT rkey, tag, kind, source FROM specimen_tags ORDER BY rkey, tag")
         .fetch_all(pool)
         .await?
-        .into_iter()
-        .map(|row| Family {
-            rkeys: family_rkeys.remove(&row.slug).unwrap_or_default(),
-            slug: row.slug,
-            title: row.title,
-        })
-        .collect();
+    {
+        tags.entry(row.rkey).or_default().push(Tag {
+            tag: row.tag,
+            kind: row.kind,
+            source: row.source,
+        });
+    }
 
     let mut margin_notes: HashMap<String, Vec<MarginNote>> = HashMap::new();
     for row in sqlx::query!("SELECT rkey, handle, note FROM margin_notes ORDER BY rkey, position")
@@ -84,7 +73,7 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
                 text: meta.origin_text,
                 url: meta.origin_url,
             },
-            families,
+            tags,
             margin_notes,
         },
     })
@@ -103,9 +92,27 @@ struct MetadataRow {
     url: String,
 }
 
+/// Import-time shape of catalog.json (the flat-file editorial seed).
+#[derive(serde::Deserialize)]
+struct ImportSeed {
+    artist: Artist,
+    origin: Origin,
+    #[serde(default)]
+    families: Vec<FamilySeed>,
+    #[serde(default)]
+    margin_notes: HashMap<String, Vec<MarginNote>>,
+}
+
+/// Legacy family entry — imported as a lineage tag named by its slug.
+#[derive(serde::Deserialize)]
+struct FamilySeed {
+    slug: String,
+    rkeys: Vec<String>,
+}
+
 pub struct ImportStats {
     pub specimens: usize,
-    pub families: usize,
+    pub lineage_tags: usize,
     pub margin_notes: usize,
 }
 
@@ -127,8 +134,7 @@ pub async fn import(
 
     let editorial_raw = std::fs::read_to_string(catalog_path)
         .with_context(|| format!("reading catalog from {catalog_path}"))?;
-    let editorial: Editorial =
-        serde_json::from_str(&editorial_raw).context("parsing catalog.json")?;
+    let seed: ImportSeed = serde_json::from_str(&editorial_raw).context("parsing catalog.json")?;
 
     let mut tx = pool.begin().await?;
 
@@ -158,33 +164,38 @@ pub async fn import(
         specimen_count += 1;
     }
 
-    // The editorial layer is replaced wholesale; the seed file is the source
-    // of truth at import time.
+    // Margin notes are replaced wholesale from the seed; tags are additive
+    // (curator- and post-sourced tags must survive a reimport).
     sqlx::query!("DELETE FROM margin_notes")
         .execute(&mut *tx)
         .await?;
-    sqlx::query!("DELETE FROM family_members")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM families")
-        .execute(&mut *tx)
-        .await?;
 
-    for (i, family) in editorial.families.iter().enumerate() {
-        sqlx::query!(
-            "INSERT INTO families (slug, title, position) VALUES ($1, $2, $3)",
-            family.slug,
-            family.title,
-            i as i32,
-        )
-        .execute(&mut *tx)
-        .await?;
-        for (j, rkey) in family.rkeys.iter().enumerate() {
-            sqlx::query!(
-                "INSERT INTO family_members (family_slug, rkey, position) VALUES ($1, $2, $3)",
-                family.slug,
+    let mut lineage_tag_count = 0;
+    for family in &seed.families {
+        for rkey in &family.rkeys {
+            let inserted = sqlx::query!(
+                "INSERT INTO specimen_tags (rkey, tag, kind, source)
+                 VALUES ($1, $2, 'lineage', 'curator')
+                 ON CONFLICT (rkey, tag) DO NOTHING",
                 rkey,
-                j as i32,
+                family.slug,
+            )
+            .execute(&mut *tx)
+            .await?;
+            lineage_tag_count += inserted.rows_affected() as usize;
+        }
+    }
+
+    // The artist can tag specimens from inside his own posts: #hashtags in
+    // captions become post-sourced tags.
+    for row in rows.iter().filter(|r| r.kind == "video") {
+        for tag in crate::catalog::extract_hashtags(&row.caption) {
+            sqlx::query!(
+                "INSERT INTO specimen_tags (rkey, tag, kind, source)
+                 VALUES ($1, $2, 'tag', 'post')
+                 ON CONFLICT (rkey, tag) DO NOTHING",
+                row.rkey,
+                tag,
             )
             .execute(&mut *tx)
             .await?;
@@ -192,7 +203,7 @@ pub async fn import(
     }
 
     let mut note_count = 0;
-    for (rkey, notes) in &editorial.margin_notes {
+    for (rkey, notes) in &seed.margin_notes {
         for (i, note) in notes.iter().enumerate() {
             sqlx::query!(
                 "INSERT INTO margin_notes (rkey, handle, note, position) VALUES ($1, $2, $3, $4)",
@@ -216,12 +227,12 @@ pub async fn import(
          SET artist_handle = EXCLUDED.artist_handle, artist_did = EXCLUDED.artist_did,
              artist_name = EXCLUDED.artist_name, origin_handle = EXCLUDED.origin_handle,
              origin_text = EXCLUDED.origin_text, origin_url = EXCLUDED.origin_url",
-        editorial.artist.handle,
-        editorial.artist.did,
-        editorial.artist.name,
-        editorial.origin.handle,
-        editorial.origin.text,
-        editorial.origin.url,
+        seed.artist.handle,
+        seed.artist.did,
+        seed.artist.name,
+        seed.origin.handle,
+        seed.origin.text,
+        seed.origin.url,
     )
     .execute(&mut *tx)
     .await?;
@@ -230,7 +241,7 @@ pub async fn import(
 
     Ok(ImportStats {
         specimens: specimen_count,
-        families: editorial.families.len(),
+        lineage_tags: lineage_tag_count,
         margin_notes: note_count,
     })
 }
@@ -305,7 +316,10 @@ mod tests {
         assert_eq!(jelly.date, "2026-06-04");
         assert_eq!(jelly.file.as_deref(), Some("videos/a.mp4"));
         assert_eq!(catalog.notes_of("3ma")[0].text, "Shoggoth found");
-        assert_eq!(catalog.families_of("3mb")[0].title, "The Jelly Line");
+        let jelly_tags = catalog.tags_of("3mb");
+        assert_eq!(jelly_tags[0].tag, "jelly-line");
+        assert_eq!(jelly_tags[0].kind, "lineage");
+        assert_eq!(catalog.tagged("jelly-line").len(), 2);
 
         std::fs::remove_dir_all(&dir).ok();
     }

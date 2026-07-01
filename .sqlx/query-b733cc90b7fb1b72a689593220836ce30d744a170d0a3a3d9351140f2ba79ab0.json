@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM specimen_tags WHERE rkey = $1 AND tag = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b733cc90b7fb1b72a689593220836ce30d744a170d0a3a3d9351140f2ba79ab0"
+}

@@ -13,13 +13,20 @@ pub struct Archive {
 
 /// The editorial layer: rooms, lineage families, and margin notes, all
 /// referencing archive specimens by rkey.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Editorial {
     pub artist: Artist,
     pub origin: Origin,
-    pub families: Vec<Family>,
-    #[serde(default)]
+    /// Tags per specimen rkey; kind 'lineage' gets evolution-strip treatment.
+    pub tags: HashMap<String, Vec<Tag>>,
     pub margin_notes: HashMap<String, Vec<MarginNote>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub tag: String,
+    pub kind: String,
+    pub source: String,
 }
 
 #[derive(Debug)]
@@ -53,13 +60,6 @@ pub struct Specimen {
 pub struct MarginNote {
     pub handle: String,
     pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Family {
-    pub slug: String,
-    pub title: String,
-    pub rkeys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -98,13 +98,47 @@ impl Archive {
 }
 
 impl Catalog {
-    /// Lineage families this specimen belongs to.
-    pub fn families_of(&self, rkey: &str) -> Vec<&Family> {
+    pub fn tags_of(&self, rkey: &str) -> &[Tag] {
         self.editorial
-            .families
+            .tags
+            .get(rkey)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Distinct lineage tags with member counts, ordered by tag.
+    pub fn lineage_tags(&self) -> Vec<(String, usize)> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for tags in self.editorial.tags.values() {
+            for t in tags.iter().filter(|t| t.kind == "lineage") {
+                *counts.entry(t.tag.as_str()).or_default() += 1;
+            }
+        }
+        let mut out: Vec<(String, usize)> = counts
+            .into_iter()
+            .map(|(t, c)| (t.to_string(), c))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// All specimens carrying a tag, in archive (chronological) order.
+    pub fn tagged(&self, tag: &str) -> Vec<&Specimen> {
+        self.archive
+            .all()
             .iter()
-            .filter(|f| f.rkeys.iter().any(|k| k == rkey))
+            .filter(|s| self.tags_of(&s.rkey).iter().any(|t| t.tag == tag))
             .collect()
+    }
+
+    /// The kind of a tag, if any specimen carries it.
+    pub fn tag_kind(&self, tag: &str) -> Option<&str> {
+        self.editorial
+            .tags
+            .values()
+            .flatten()
+            .find(|t| t.tag == tag)
+            .map(|t| t.kind.as_str())
     }
 
     pub fn notes_of(&self, rkey: &str) -> &[MarginNote] {
@@ -196,6 +230,42 @@ pub fn pretty_month(year_month: &str) -> String {
         .unwrap_or(pretty)
 }
 
+/// "the-cortex-line" → "the cortex line", for tag display.
+pub fn tag_display(tag: &str) -> String {
+    tag.replace('-', " ")
+}
+
+/// Normalize free text into a tag slug.
+pub fn slugify(text: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = true;
+    for c in text.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
+/// #hashtags in a caption, slugified — the artist can tag specimens from
+/// inside his own posts.
+pub fn extract_hashtags(text: &str) -> Vec<String> {
+    let mut tags = Vec::new();
+    for word in text.split_whitespace() {
+        if let Some(raw) = word.strip_prefix('#') {
+            let tag = slugify(raw);
+            if !tag.is_empty() && !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+    }
+    tags
+}
+
 pub fn roman(n: usize) -> &'static str {
     const NUMERALS: [&str; 12] = [
         "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
@@ -246,6 +316,17 @@ mod tests {
     fn dates_render_naturalist_style() {
         assert_eq!(pretty_date("2026-06-04"), "4 June 2026");
         assert_eq!(pretty_month("2026-06"), "June 2026");
+    }
+
+    #[test]
+    fn hashtags_extract_and_slugify() {
+        assert_eq!(
+            extract_hashtags("Koosh Rapture #koosh #LivingMetal!"),
+            vec!["koosh".to_string(), "livingmetal".to_string()]
+        );
+        assert!(extract_hashtags("no tags here").is_empty());
+        assert_eq!(slugify("The Cortex Line"), "the-cortex-line");
+        assert_eq!(tag_display("the-cortex-line"), "the cortex line");
     }
 
     #[test]

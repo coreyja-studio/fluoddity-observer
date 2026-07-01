@@ -185,7 +185,7 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
     let stats = db::import(&pool, &metadata_path, &catalog_path).await?;
     tracing::info!(
         specimens = stats.specimens,
-        families = stats.families,
+        lineage_tags = stats.lineage_tags,
         margin_notes = stats.margin_notes,
         "import complete"
     );
@@ -205,7 +205,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let catalog = db::load_catalog(&pool).await?;
     tracing::info!(
         archive = catalog.archive.len(),
-        families = catalog.editorial.families.len(),
+        tagged = catalog.editorial.tags.len(),
         ?media_mode,
         "catalog loaded from database"
     );
@@ -243,6 +243,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/archive", get(archive))
         .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
+        .route("/tag/{tag}", get(tag_page))
         .route("/colophon", get(colophon))
         .route("/admin", get(admin::dashboard))
         .route(
@@ -259,6 +260,8 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
             "/admin/thread-rooms/remove",
             axum::routing::post(admin::remove_thread_room),
         )
+        .route("/admin/tags/add", axum::routing::post(admin::add_tag))
+        .route("/admin/tags/remove", axum::routing::post(admin::remove_tag))
         .route("/static/style.css", get(stylesheet))
         .route("/static/admin.css", get(admin_css))
         .route("/static/gallery.js", get(gallery_js))
@@ -310,9 +313,21 @@ async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppEr
     Ok(views::archive(&state.ctx().await?))
 }
 
+async fn tag_page(
+    State(state): State<SharedState>,
+    Path(tag): Path<String>,
+) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    Ok(match ctx.catalog.tag_kind(&tag) {
+        Some(kind) => views::tag_page(&ctx, &tag, kind).into_response(),
+        None => not_found(),
+    })
+}
+
 async fn specimen(
     State(state): State<SharedState>,
     Path(rkey): Path<String>,
+    curator: Option<auth::Curator>,
 ) -> Result<Response, AppError> {
     let ctx = state.ctx().await?;
     if ctx.catalog.archive.get(&rkey).is_none() {
@@ -324,7 +339,7 @@ async fn specimen(
         .filter(|h| h.room.entries.iter().any(|e| e.specimen_rkey == rkey))
         .collect();
     let specimen = ctx.catalog.archive.get(&rkey).expect("checked above");
-    Ok(views::specimen(&ctx, &hung_in, specimen).into_response())
+    Ok(views::specimen(&ctx, &hung_in, specimen, curator.as_ref()).into_response())
 }
 
 async fn colophon(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {

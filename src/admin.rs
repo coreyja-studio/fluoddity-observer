@@ -316,6 +316,62 @@ pub async fn remove_thread_room(
     Ok(Redirect::to("/admin"))
 }
 
+#[derive(serde::Deserialize)]
+pub struct TagForm {
+    rkey: String,
+    tag: String,
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+pub async fn add_tag(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<TagForm>,
+) -> Result<Response, AdminError> {
+    let tag = crate::catalog::slugify(&form.tag);
+    if tag.is_empty() {
+        return Ok((
+            axum::http::StatusCode::BAD_REQUEST,
+            "A tag needs at least one letter.",
+        )
+            .into_response());
+    }
+    let kind = match form.kind.as_deref() {
+        Some("lineage") => "lineage",
+        _ => "tag",
+    };
+    sqlx::query!(
+        "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)
+         VALUES ($1, $2, $3, 'curator', $4)
+         ON CONFLICT (rkey, tag) DO UPDATE SET kind = EXCLUDED.kind",
+        form.rkey,
+        tag,
+        kind,
+        curator.did,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, %tag, kind, "specimen tagged");
+    Ok(Redirect::to(&format!("/specimen/{}", form.rkey)).into_response())
+}
+
+pub async fn remove_tag(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<TagForm>,
+) -> Result<Redirect, AdminError> {
+    sqlx::query!(
+        "DELETE FROM specimen_tags WHERE rkey = $1 AND tag = $2",
+        form.rkey,
+        form.tag,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, tag = %form.tag, "tag removed");
+    Ok(Redirect::to(&format!("/specimen/{}", form.rkey)))
+}
+
 /// Accepts bsky.app post URLs or at-uris; returns (author, rkey).
 pub fn parse_thread_url(url: &str) -> Option<(String, String)> {
     if let Some(rest) = url.strip_prefix("at://") {

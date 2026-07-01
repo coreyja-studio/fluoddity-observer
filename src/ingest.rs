@@ -103,6 +103,17 @@ pub async fn poll_once(pool: &PgPool, client: &reqwest::Client) -> anyhow::Resul
         .execute(pool)
         .await?;
         if inserted.rows_affected() > 0 {
+            for tag in crate::catalog::extract_hashtags(&d.caption) {
+                sqlx::query!(
+                    "INSERT INTO specimen_tags (rkey, tag, kind, source)
+                     VALUES ($1, $2, 'tag', 'post')
+                     ON CONFLICT (rkey, tag) DO NOTHING",
+                    d.rkey,
+                    tag,
+                )
+                .execute(pool)
+                .await?;
+            }
             added.push(d.rkey.clone());
         }
     }

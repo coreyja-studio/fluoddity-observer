@@ -2,7 +2,8 @@ use maud::{DOCTYPE, Markup, html};
 
 use crate::{
     Ctx, HungRoom,
-    catalog::{Family, Specimen, pretty_date, pretty_month, roman},
+    auth::Curator,
+    catalog::{Specimen, pretty_date, pretty_month, roman, tag_display},
     threads::ThreadRoom,
 };
 
@@ -109,18 +110,19 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                     }
                 }
 
-                section .lineages {
-                    h2 .room-label { "The Lineages" }
-                    p .room-sublabel {
-                        "a specimen is often a family — forms mutate across days, and the guide keeps the descendants together"
-                    }
-                    ul .lineage-list {
-                        @for family in &editorial.families {
-                            @if let Some(first) = family.rkeys.first().and_then(|k| catalog.archive.get(k)) {
+                @let lineages = catalog.lineage_tags();
+                @if !lineages.is_empty() {
+                    section .lineages {
+                        h2 .room-label { "The Lineages" }
+                        p .room-sublabel {
+                            "a specimen is often a family — forms mutate across days, and the guide keeps the descendants together"
+                        }
+                        ul .lineage-list {
+                            @for (tag, count) in &lineages {
                                 li {
-                                    a href=(format!("/specimen/{}", first.rkey)) {
-                                        (family.title)
-                                        span .count { " · " (family.rkeys.len()) " forms" }
+                                    a href=(format!("/tag/{tag}")) {
+                                        (tag_display(tag))
+                                        span .count { " · " (count) " forms" }
                                     }
                                 }
                             }
@@ -223,20 +225,21 @@ pub fn archive(ctx: &Ctx) -> Markup {
     )
 }
 
-fn family_strip(ctx: &Ctx, family: &Family, current_rkey: &str) -> Markup {
+fn lineage_strip(ctx: &Ctx, tag: &str, current_rkey: &str) -> Markup {
+    let members = ctx.catalog.tagged(tag);
     html! {
         section .family {
-            h3 .family-title { "Lineage · " (family.title) }
+            h3 .family-title {
+                "Lineage · " a href=(format!("/tag/{tag}")) { (tag_display(tag)) }
+            }
             div .family-strip {
-                @for (i, rkey) in family.rkeys.iter().enumerate() {
-                    @if let Some(member) = ctx.catalog.archive.get(rkey) {
-                        @if i > 0 { span .family-arrow aria-hidden="true" { "⟿" } }
-                        a .family-member
-                            .current[member.rkey == current_rkey]
-                            href=(format!("/specimen/{}", member.rkey)) {
-                            img src=(ctx.video_sources(member).2) alt=(member.label()) loading="lazy";
-                            span { (pretty_date(&member.date)) }
-                        }
+                @for (i, member) in members.iter().enumerate() {
+                    @if i > 0 { span .family-arrow aria-hidden="true" { "⟿" } }
+                    a .family-member
+                        .current[member.rkey == current_rkey]
+                        href=(format!("/specimen/{}", member.rkey)) {
+                        img src=(ctx.video_sources(member).2) alt=(member.label()) loading="lazy";
+                        span { (pretty_date(&member.date)) }
                     }
                 }
             }
@@ -244,8 +247,13 @@ fn family_strip(ctx: &Ctx, family: &Family, current_rkey: &str) -> Markup {
     }
 }
 
-pub fn specimen(ctx: &Ctx, hung_in: &[&HungRoom], s: &Specimen) -> Markup {
-    let families = ctx.catalog.families_of(&s.rkey);
+pub fn specimen(
+    ctx: &Ctx,
+    hung_in: &[&HungRoom],
+    s: &Specimen,
+    curator: Option<&Curator>,
+) -> Markup {
+    let tags = ctx.catalog.tags_of(&s.rkey);
     let notes = ctx.catalog.notes_of(&s.rkey);
     let artist_did = ctx.catalog.editorial.artist.did.clone();
     let plate = hung_in
@@ -303,8 +311,37 @@ pub fn specimen(ctx: &Ctx, hung_in: &[&HungRoom], s: &Specimen) -> Markup {
                     }
                 }
 
-                @for family in &families {
-                    (family_strip(ctx, family, &s.rkey))
+                @for tag in tags.iter().filter(|t| t.kind == "lineage") {
+                    (lineage_strip(ctx, &tag.tag, &s.rkey))
+                }
+
+                div .tag-row {
+                    @for tag in tags {
+                        span .tag-chip {
+                            a href=(format!("/tag/{}", tag.tag)) {
+                                @if tag.kind == "lineage" { "⟿ " }
+                                (tag_display(&tag.tag))
+                            }
+                            @if curator.is_some() {
+                                form method="post" action="/admin/tags/remove" .inline-form {
+                                    input type="hidden" name="rkey" value=(s.rkey);
+                                    input type="hidden" name="tag" value=(tag.tag);
+                                    button type="submit" .link-button title="remove tag" { "✕" }
+                                }
+                            }
+                        }
+                    }
+                    @if curator.is_some() {
+                        form method="post" action="/admin/tags/add" .inline-form .tag-add {
+                            input type="hidden" name="rkey" value=(s.rkey);
+                            input type="text" name="tag" placeholder="add tag" required;
+                            select name="kind" {
+                                option value="tag" { "tag" }
+                                option value="lineage" { "lineage" }
+                            }
+                            button type="submit" { "tag it" }
+                        }
+                    }
                 }
 
                 nav .room-nav {
@@ -382,6 +419,53 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                         p .room-sublabel {
                             "This thread doesn't reference any of the artist's specimens yet. "
                             "Quote-post or link his work in the thread and it will hang here."
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href="/" { "← back to contents" }
+                }
+            }
+        },
+    )
+}
+
+pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
+    let members = ctx.catalog.tagged(tag);
+    let heading = if kind == "lineage" {
+        format!("Lineage · {}", tag_display(tag))
+    } else {
+        format!("Tagged · {}", tag_display(tag))
+    };
+    base(
+        &format!("{} — Fluoddity", tag_display(tag)),
+        html! {
+            main .sheet {
+                (page_header(ctx, &heading))
+
+                section {
+                    h2 .room-label { (tag_display(tag)) }
+                    p .room-sublabel {
+                        @if kind == "lineage" {
+                            (members.len()) " forms, oldest first — watch it evolve"
+                        } @else {
+                            (members.len()) " specimens carry this tag"
+                        }
+                    }
+
+                    div .plate-grid {
+                        @for (i, s) in members.iter().enumerate() {
+                            figure .specimen {
+                                (specimen_video(ctx, s))
+                                figcaption {
+                                    p .fig-no { "Fig. " (i + 1) }
+                                    p .fig-name {
+                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                    }
+                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                }
+                            }
                         }
                     }
                 }
