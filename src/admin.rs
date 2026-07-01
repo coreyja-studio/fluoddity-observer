@@ -5,7 +5,7 @@
 use atrium_oauth::{AuthorizeOptions, CallbackParams, KnownScope, Scope};
 use axum::{
     Form,
-    extract::{Path, Query, State},
+    extract::{Query, State},
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
@@ -14,7 +14,6 @@ use maud::{DOCTYPE, Markup, html};
 use crate::{
     SharedState,
     auth::{self, Curator, SESSION_COOKIE},
-    catalog::Catalog,
     db,
 };
 
@@ -190,8 +189,11 @@ pub async fn dashboard(
     State(state): State<SharedState>,
     curator: Curator,
 ) -> Result<Markup, AdminError> {
-    let catalog = db::load_catalog(&state.pool).await?;
-    let guest_rooms = db::guest_rooms(&state.pool).await?;
+    let thread_rooms = db::thread_rooms(&state.pool).await?;
+    let artist_did = sqlx::query!("SELECT artist_did FROM gallery_meta")
+        .fetch_one(&state.pool)
+        .await?
+        .artist_did;
     Ok(admin_base(
         "Rooms",
         html! {
@@ -205,47 +207,29 @@ pub async fn dashboard(
 
             section {
                 h2 .room-label { "The Rooms" }
-                @for room in &catalog.editorial.rooms {
-                    div .admin-room {
-                        form method="post" action=(format!("/admin/room/{}/update", room.slug)) .admin-form .room-edit {
-                            input type="text" name="title" value=(room.title) required;
-                            input type="text" name="description" value=(room.description);
-                            button type="submit" { "save" }
+                p .room-sublabel {
+                    "a room is a Bluesky thread — paste a head post's URL to hang it. "
+                    "The artist's threads become the museum's plates; anyone else's hang "
+                    "as guest rooms. Rooms render live: edit the thread, the room follows."
+                }
+                @for tr in &thread_rooms {
+                    div .admin-specimen {
+                        a href=(format!("/room/{}/{}", tr.author_handle, tr.rkey)) { (tr.title) }
+                        span .admin-date {
+                            "@" (tr.author_handle)
+                            @if tr.author_did == artist_did { " · plate" } @else { " · guest" }
                         }
-                        div .admin-room-specimens {
-                            @for s in catalog.room_specimens(room) {
-                                div .admin-specimen {
-                                    a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
-                                    form method="post" action="/admin/unhang" .inline-form {
-                                        input type="hidden" name="room_slug" value=(room.slug);
-                                        input type="hidden" name="rkey" value=(s.rkey);
-                                        button type="submit" .link-button title="take down" { "✕" }
-                                    }
-                                }
-                            }
+                        form method="post" action="/admin/thread-rooms/remove" .inline-form {
+                            input type="hidden" name="author_did" value=(tr.author_did);
+                            input type="hidden" name="rkey" value=(tr.rkey);
+                            button type="submit" .link-button title="take down" { "✕" }
                         }
                     }
                 }
-                form method="post" action="/admin/rooms/create" .admin-form .room-create {
-                    input type="text" name="title" placeholder="New room title" required;
-                    input type="text" name="description" placeholder="description (vibe, in the artist's words)";
-                    button type="submit" { "open a new room" }
+                form method="post" action="/admin/thread-rooms/add" .admin-form .room-create {
+                    input type="text" name="url" placeholder="https://bsky.app/profile/curator/post/…" required;
+                    button type="submit" { "hang this thread" }
                 }
-            }
-
-            section {
-                h2 .room-label { "Guest Rooms" }
-                p .room-sublabel {
-                    "a guest room is a Bluesky thread — paste the head post's URL to hang it "
-                    "on the front page; it renders live from the thread"
-                }
-                (guest_rooms_section(&guest_rooms))
-            }
-
-            section {
-                h2 .room-label { "Not Yet Hung" }
-                p .room-sublabel { "archive specimens awaiting a room — newest first" }
-                (unclassified_list(&catalog))
             }
         },
     ))
@@ -259,161 +243,17 @@ fn display_name(curator: &Curator) -> String {
     }
 }
 
-fn unclassified_list(catalog: &Catalog) -> Markup {
-    let unhung: Vec<_> = catalog
-        .archive
-        .all()
-        .iter()
-        .rev()
-        .filter(|s| catalog.room_of(&s.rkey).is_none())
-        .collect();
-    html! {
-        p .room-sublabel { (unhung.len()) " unclassified" }
-        div .unhung-list {
-            @for s in unhung.iter().take(60) {
-                div .admin-specimen {
-                    a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
-                    span .admin-date { (s.date) }
-                    form method="post" action="/admin/hang" .inline-form {
-                        input type="hidden" name="rkey" value=(s.rkey);
-                        select name="room_slug" {
-                            @for room in &catalog.editorial.rooms {
-                                option value=(room.slug) { (room.title) }
-                            }
-                        }
-                        button type="submit" { "hang" }
-                    }
-                }
-            }
-            @if unhung.len() > 60 {
-                p .room-sublabel { "… and " (unhung.len() - 60) " more, older" }
-            }
-        }
-    }
-}
-
-fn guest_rooms_section(guest_rooms: &[crate::db::GuestRoomRow]) -> Markup {
-    html! {
-        @for gr in guest_rooms {
-            div .admin-specimen {
-                a href=(format!("/guest/{}/{}", gr.author_handle, gr.rkey)) { (gr.title) }
-                span .admin-date { "@" (gr.author_handle) }
-                form method="post" action="/admin/guest-rooms/remove" .inline-form {
-                    input type="hidden" name="author_did" value=(gr.author_did);
-                    input type="hidden" name="rkey" value=(gr.rkey);
-                    button type="submit" .link-button title="take down" { "✕" }
-                }
-            }
-        }
-        form method="post" action="/admin/guest-rooms/add" .admin-form .room-create {
-            input type="text" name="url" placeholder="https://bsky.app/profile/curator/post/…" required;
-            button type="submit" { "hang this thread" }
-        }
-    }
-}
-
 // ---- mutations ----
 
 #[derive(serde::Deserialize)]
-pub struct HangForm {
-    rkey: String,
-    room_slug: String,
-}
-
-pub async fn hang(
-    State(state): State<SharedState>,
-    curator: Curator,
-    Form(form): Form<HangForm>,
-) -> Result<Redirect, AdminError> {
-    let result = sqlx::query!(
-        "INSERT INTO room_specimens (room_slug, rkey, position)
-         SELECT $1, $2, COALESCE(MAX(position) + 1, 0)
-         FROM room_specimens WHERE room_slug = $1
-         ON CONFLICT (room_slug, rkey) DO NOTHING",
-        form.room_slug,
-        form.rkey,
-    )
-    .execute(&state.pool)
-    .await?;
-    if result.rows_affected() > 0 {
-        tracing::info!(curator = %curator.did, rkey = %form.rkey, room = %form.room_slug, "specimen hung");
-    }
-    Ok(Redirect::to("/admin"))
-}
-
-pub async fn unhang(
-    State(state): State<SharedState>,
-    curator: Curator,
-    Form(form): Form<HangForm>,
-) -> Result<Redirect, AdminError> {
-    sqlx::query!(
-        "DELETE FROM room_specimens WHERE room_slug = $1 AND rkey = $2",
-        form.room_slug,
-        form.rkey,
-    )
-    .execute(&state.pool)
-    .await?;
-    tracing::info!(curator = %curator.did, rkey = %form.rkey, room = %form.room_slug, "specimen taken down");
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(serde::Deserialize)]
-pub struct RoomForm {
-    title: String,
-    #[serde(default)]
-    description: String,
-}
-
-pub async fn create_room(
-    State(state): State<SharedState>,
-    curator: Curator,
-    Form(form): Form<RoomForm>,
-) -> Result<Redirect, AdminError> {
-    let slug = slugify(&form.title);
-    if slug.is_empty() {
-        return Err(anyhow::anyhow!("room title must contain letters").into());
-    }
-    sqlx::query!(
-        "INSERT INTO rooms (slug, title, description, position)
-         SELECT $1, $2, $3, COALESCE(MAX(position) + 1, 0) FROM rooms
-         ON CONFLICT (slug) DO NOTHING",
-        slug,
-        form.title.trim(),
-        form.description.trim(),
-    )
-    .execute(&state.pool)
-    .await?;
-    tracing::info!(curator = %curator.did, %slug, "room opened");
-    Ok(Redirect::to("/admin"))
-}
-
-pub async fn update_room(
-    State(state): State<SharedState>,
-    curator: Curator,
-    Path(slug): Path<String>,
-    Form(form): Form<RoomForm>,
-) -> Result<Redirect, AdminError> {
-    sqlx::query!(
-        "UPDATE rooms SET title = $2, description = $3 WHERE slug = $1",
-        slug,
-        form.title.trim(),
-        form.description.trim(),
-    )
-    .execute(&state.pool)
-    .await?;
-    tracing::info!(curator = %curator.did, %slug, "room updated");
-    Ok(Redirect::to("/admin"))
-}
-
-#[derive(serde::Deserialize)]
-pub struct GuestRoomAddForm {
+pub struct ThreadRoomAddForm {
     url: String,
 }
 
-pub async fn add_guest_room(
+pub async fn add_thread_room(
     State(state): State<SharedState>,
     curator: Curator,
-    Form(form): Form<GuestRoomAddForm>,
+    Form(form): Form<ThreadRoomAddForm>,
 ) -> Result<Response, AdminError> {
     let Some((author, rkey)) = parse_thread_url(form.url.trim()) else {
         return Ok((
@@ -438,7 +278,7 @@ pub async fn add_guest_room(
     };
 
     sqlx::query!(
-        "INSERT INTO guest_rooms (author_did, rkey, author_handle, title, added_by)
+        "INSERT INTO thread_rooms (author_did, rkey, author_handle, title, added_by)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (author_did, rkey)
          DO UPDATE SET author_handle = EXCLUDED.author_handle, title = EXCLUDED.title",
@@ -450,29 +290,29 @@ pub async fn add_guest_room(
     )
     .execute(&state.pool)
     .await?;
-    tracing::info!(curator = %curator.did, author = %room.author_handle, rkey = %room.rkey, "guest room hung");
+    tracing::info!(curator = %curator.did, author = %room.author_handle, rkey = %room.rkey, "thread room hung");
     Ok(Redirect::to("/admin").into_response())
 }
 
 #[derive(serde::Deserialize)]
-pub struct GuestRoomRemoveForm {
+pub struct ThreadRoomRemoveForm {
     author_did: String,
     rkey: String,
 }
 
-pub async fn remove_guest_room(
+pub async fn remove_thread_room(
     State(state): State<SharedState>,
     curator: Curator,
-    Form(form): Form<GuestRoomRemoveForm>,
+    Form(form): Form<ThreadRoomRemoveForm>,
 ) -> Result<Redirect, AdminError> {
     sqlx::query!(
-        "DELETE FROM guest_rooms WHERE author_did = $1 AND rkey = $2",
+        "DELETE FROM thread_rooms WHERE author_did = $1 AND rkey = $2",
         form.author_did,
         form.rkey,
     )
     .execute(&state.pool)
     .await?;
-    tracing::info!(curator = %curator.did, rkey = %form.rkey, "guest room taken down");
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, "thread room taken down");
     Ok(Redirect::to("/admin"))
 }
 
@@ -492,21 +332,6 @@ pub fn parse_thread_url(url: &str) -> Option<(String, String)> {
     (!author.is_empty() && !rkey.is_empty()).then(|| (author.to_string(), rkey.to_string()))
 }
 
-pub fn slugify(title: &str) -> String {
-    let mut slug = String::new();
-    let mut last_dash = true;
-    for c in title.trim().chars() {
-        if c.is_ascii_alphanumeric() {
-            slug.push(c.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash {
-            slug.push('-');
-            last_dash = true;
-        }
-    }
-    slug.trim_end_matches('-').to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -524,12 +349,5 @@ mod tests {
             Some(("did:plc:abc".into(), "3xyz".into()))
         );
         assert_eq!(parse_thread_url("https://example.com/nope"), None);
-    }
-
-    #[test]
-    fn slugify_handles_punctuation_and_case() {
-        assert_eq!(slugify("The Koosh & the Velvet"), "the-koosh-the-velvet");
-        assert_eq!(slugify("  Pools!  "), "pools");
-        assert_eq!(slugify("!!!"), "");
     }
 }

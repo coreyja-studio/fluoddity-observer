@@ -1,9 +1,8 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{
-    Ctx,
-    catalog::{Family, Room, Specimen, pretty_date, pretty_month, roman},
-    db::GuestRoomRow,
+    Ctx, HungRoom,
+    catalog::{Family, Specimen, pretty_date, pretty_month, roman},
     threads::ThreadRoom,
 };
 
@@ -68,7 +67,7 @@ fn page_header(ctx: &Ctx, plate: &str) -> Markup {
     }
 }
 
-pub fn index(ctx: &Ctx, guest_rooms: &[GuestRoomRow]) -> Markup {
+pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
     let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
     base(
@@ -88,19 +87,23 @@ pub fn index(ctx: &Ctx, guest_rooms: &[GuestRoomRow]) -> Markup {
                 section .contents {
                     h2 .room-label { "Contents · The Rooms" }
                     p .room-sublabel {
-                        "arranged by vibe, not by date — a provisional taxonomy, pending the artist's own"
+                        "every room is one of the artist's own Bluesky threads, rendered live — "
+                        "when a thread grows, its room grows with it"
                     }
-                    @for (i, room) in editorial.rooms.iter().enumerate() {
-                        a .contents-row href=(format!("/room/{}", room.slug)) {
+                    @let artist_rooms: Vec<&HungRoom> = rooms.iter().filter(|h| h.is_by(&editorial.artist.did)).collect();
+                    @if artist_rooms.is_empty() {
+                        p .room-sublabel { "no rooms hung yet — the archive below holds everything meanwhile" }
+                    }
+                    @for (i, hung) in artist_rooms.iter().enumerate() {
+                        a .contents-row href=(format!("/room/{}/{}", hung.row.author_handle, hung.row.rkey)) {
                             div .contents-thumbs {
-                                @for s in catalog.room_specimens(room).take(3) {
+                                @for s in hung.room.entries.iter().filter_map(|e| catalog.archive.get(&e.specimen_rkey)).take(3) {
                                     img src=(ctx.video_sources(s).2) alt="" loading="lazy";
                                 }
                             }
                             div .contents-text {
-                                h3 { span .roman { "Plate " (roman(i + 1)) } " — " (room.title) }
-                                p { (room.description) }
-                                p .count { (room.rkeys.len()) " specimens" }
+                                h3 { span .roman { "Plate " (roman(i + 1)) } " — " (hung.room.title) }
+                                p .count { (hung.room.entries.len()) " specimens" }
                             }
                         }
                     }
@@ -125,20 +128,21 @@ pub fn index(ctx: &Ctx, guest_rooms: &[GuestRoomRow]) -> Markup {
                     }
                 }
 
+                @let guest_rooms: Vec<&HungRoom> = rooms.iter().filter(|h| !h.is_by(&editorial.artist.did)).collect();
                 @if !guest_rooms.is_empty() {
                     section .guest-rooms {
                         h2 .room-label { "Guest Rooms" }
                         p .room-sublabel {
-                            "rooms curated by others — each one is a Bluesky thread, rendered live; "
-                            "edit the thread and the room follows"
+                            "rooms curated by others — post a thread quoting the artist's work "
+                            "and it can hang here"
                         }
                         ul .lineage-list {
-                            @for gr in guest_rooms {
+                            @for hung in &guest_rooms {
                                 li {
-                                    a href=(format!("/guest/{}/{}", gr.author_handle, gr.rkey)) {
-                                        (gr.title)
+                                    a href=(format!("/room/{}/{}", hung.row.author_handle, hung.row.rkey)) {
+                                        (hung.room.title)
                                     }
-                                    span .count { " · hung by @" (gr.author_handle) }
+                                    span .count { " · hung by @" (hung.row.author_handle) }
                                 }
                             }
                         }
@@ -166,55 +170,6 @@ pub fn index(ctx: &Ctx, guest_rooms: &[GuestRoomRow]) -> Markup {
 
                 footer .colophon-link {
                     a href="/colophon" { "colophon — why this guide exists" }
-                }
-            }
-        },
-    )
-}
-
-pub fn room(ctx: &Ctx, room: &Room) -> Markup {
-    let plate_index = ctx
-        .catalog
-        .editorial
-        .rooms
-        .iter()
-        .position(|r| r.slug == room.slug)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    base(
-        &format!("{} — Fluoddity", room.title),
-        html! {
-            main .sheet {
-                (page_header(ctx, &format!("Plate {}", roman(plate_index))))
-
-                section {
-                    h2 .room-label { (room.title) }
-                    p .room-sublabel { (room.description) " — as noted by the artist" }
-
-                    div .plate-grid {
-                        @for (i, s) in ctx.catalog.room_specimens(room).enumerate() {
-                            figure .specimen {
-                                (specimen_video(ctx, s))
-                                figcaption {
-                                    p .fig-no { "Fig. " (i + 1) }
-                                    p .fig-name {
-                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
-                                    }
-                                    p .fig-date { "collected " (pretty_date(&s.date)) }
-                                    @if !ctx.catalog.notes_of(&s.rkey).is_empty()
-                                        || !ctx.catalog.families_of(&s.rkey).is_empty() {
-                                        p .fig-more {
-                                            a href=(format!("/specimen/{}", s.rkey)) { "field notes →" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                nav .room-nav {
-                    a href="/" { "← back to contents" }
                 }
             }
         },
@@ -289,10 +244,14 @@ fn family_strip(ctx: &Ctx, family: &Family, current_rkey: &str) -> Markup {
     }
 }
 
-pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
+pub fn specimen(ctx: &Ctx, hung_in: &[&HungRoom], s: &Specimen) -> Markup {
     let families = ctx.catalog.families_of(&s.rkey);
     let notes = ctx.catalog.notes_of(&s.rkey);
-    let plate = room.map(|r| r.title.as_str()).unwrap_or("The Archive");
+    let artist_did = ctx.catalog.editorial.artist.did.clone();
+    let plate = hung_in
+        .first()
+        .map(|h| h.room.title.as_str())
+        .unwrap_or("The Archive");
     base(
         &format!("{} — Fluoddity", s.label()),
         html! {
@@ -315,10 +274,17 @@ pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
                 }
 
                 div .wall-label {
-                    @if room.is_some() {
-                        p .provenance { "selected by the field survey, vol. i" }
-                    } @else {
+                    @if hung_in.is_empty() {
                         p .provenance { "from the expedition record — not yet hung in a room" }
+                    } @else {
+                        @for h in hung_in {
+                            p .provenance {
+                                "hung in "
+                                a href=(format!("/room/{}/{}", h.row.author_handle, h.row.rkey)) { (h.room.title) }
+                                @if h.is_by(&artist_did) { " by the artist" }
+                                @else { " by @" (h.row.author_handle) }
+                            }
+                        }
                     }
                     p .source-link {
                         a href=(s.url) { "the original sighting, on Bluesky →" }
@@ -342,8 +308,10 @@ pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
                 }
 
                 nav .room-nav {
-                    @if let Some(room) = room {
-                        a href=(format!("/room/{}", room.slug)) { "← back to " (room.title) }
+                    @if let Some(h) = hung_in.first() {
+                        a href=(format!("/room/{}/{}", h.row.author_handle, h.row.rkey)) {
+                            "← back to " (h.room.title)
+                        }
                     } @else {
                         a href="/archive" { "← back to the archive" }
                     }
@@ -353,12 +321,16 @@ pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
     )
 }
 
-pub fn guest_room(ctx: &Ctx, room: &ThreadRoom) -> Markup {
+pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup {
     base(
         &format!("{} — Fluoddity", room.title),
         html! {
             main .sheet {
-                (page_header(ctx, "Guest Room"))
+                @let plate_label = match plate {
+                    Some(n) => format!("Plate {}", roman(n)),
+                    None => "Guest Room".to_string(),
+                };
+                (page_header(ctx, &plate_label))
 
                 section {
                     h2 .room-label { (room.title) }

@@ -55,17 +55,19 @@ In `local` mode, generate poster frames once (requires `ffmpeg`):
 scripts/generate_posters.py [media-dir]
 ```
 
-## Guest rooms: threads ARE rooms
+## Rooms ARE threads
 
-Anyone can curate a room by posting a **Bluesky thread**: quote-post or link
-the artist's work, with your own commentary. The thread head renders live at
-`/guest/{handle}/{rkey}` — your posts become the walk-through, your words the
-wall labels. Edit the thread, and the room follows (5-minute cache).
+Every room is a **Bluesky thread** — there is no other kind. The artist's
+own registered threads are the museum's first-class plates on the front
+page; anyone else's registered threads hang under Guest Rooms. Threads
+render live at `/room/{handle}/{rkey}` (5-minute cache): posts are the
+walk-through, post text the wall labels, the root post the introduction.
+Edit the thread and the room follows.
 
 Only the artist's specimens render (quote-posts of his work, links to his
 posts, or — for his own threads — his video posts directly), so a thread
-can't inject foreign content. Roster curators can *register* a thread from
-the desk to hang it on the front page under Guest Rooms.
+can't inject foreign content. Roster curators register threads from the
+desk; viewing any thread as a room is permissionless.
 
 ## The curator's desk (admin)
 
@@ -76,8 +78,8 @@ only: the atproto tokens are discarded the moment the DID is verified.
 
 - Roster: the artist DID (from `gallery_meta`) is always on it; seed others
   with `PCG_ADMIN_DIDS="did:plc:xyz=handle,did:plc:abc"`.
-- Capabilities: open/edit rooms, hang specimens into rooms, take them down.
-  Changes are live on the public site immediately.
+- Capabilities: register/remove thread rooms. Room contents are managed by
+  editing the threads themselves, on Bluesky.
 - The OAuth client currently runs in atproto *loopback* mode, so the browser
   must reach the site via `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>`
   then http://127.0.0.1:4601/admin). The hosted confidential-client metadata

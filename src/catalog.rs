@@ -17,7 +17,6 @@ pub struct Archive {
 pub struct Editorial {
     pub artist: Artist,
     pub origin: Origin,
-    pub rooms: Vec<Room>,
     pub families: Vec<Family>,
     #[serde(default)]
     pub margin_notes: HashMap<String, Vec<MarginNote>>,
@@ -34,14 +33,6 @@ pub struct Artist {
     pub handle: String,
     pub did: String,
     pub name: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Room {
-    pub slug: String,
-    pub title: String,
-    pub description: String,
-    pub rkeys: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -107,22 +98,6 @@ impl Archive {
 }
 
 impl Catalog {
-    pub fn room(&self, slug: &str) -> Option<&Room> {
-        self.editorial.rooms.iter().find(|r| r.slug == slug)
-    }
-
-    pub fn room_specimens<'a>(&'a self, room: &'a Room) -> impl Iterator<Item = &'a Specimen> {
-        room.rkeys.iter().filter_map(|k| self.archive.get(k))
-    }
-
-    /// The room a specimen hangs in, if the survey has classified it.
-    pub fn room_of(&self, rkey: &str) -> Option<&Room> {
-        self.editorial
-            .rooms
-            .iter()
-            .find(|r| r.rkeys.iter().any(|k| k == rkey))
-    }
-
     /// Lineage families this specimen belongs to.
     pub fn families_of(&self, rkey: &str) -> Vec<&Family> {
         self.editorial

@@ -17,6 +17,7 @@ use axum::{
 };
 use catalog::Catalog;
 use sqlx::PgPool;
+use std::sync::Arc as StdArc;
 use tower_http::services::ServeDir;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +68,49 @@ impl Ctx {
     }
 }
 
+/// A registered thread room joined with its live thread data.
+pub struct HungRoom {
+    pub row: db::ThreadRoomRow,
+    pub room: StdArc<threads::ThreadRoom>,
+}
+
+impl HungRoom {
+    pub fn is_by(&self, did: &str) -> bool {
+        self.row.author_did == did
+    }
+}
+
 impl AppState {
+    /// All registered thread rooms with live (cached) thread data. Rooms
+    /// whose threads can't be fetched right now are skipped with a warning.
+    async fn registered_rooms(&self, ctx: &Ctx) -> Vec<HungRoom> {
+        let artist = &ctx.catalog.editorial.artist;
+        let rows = match db::thread_rooms(&self.pool).await {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::error!(?err, "loading thread room registry failed");
+                return Vec::new();
+            }
+        };
+        let mut hung = Vec::new();
+        for row in rows {
+            match self
+                .threads
+                .fetch(&row.author_did, &row.rkey, &artist.did, &artist.handle)
+                .await
+            {
+                Ok(Some(room)) => hung.push(HungRoom { row, room }),
+                Ok(None) => {
+                    tracing::warn!(rkey = %row.rkey, "registered thread room no longer resolves");
+                }
+                Err(err) => {
+                    tracing::warn!(?err, rkey = %row.rkey, "thread room fetch failed");
+                }
+            }
+        }
+        hung
+    }
+
     async fn ctx(&self) -> anyhow::Result<Ctx> {
         Ok(Ctx {
             catalog: db::load_catalog(&self.pool).await?,
@@ -142,7 +185,6 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
     let stats = db::import(&pool, &metadata_path, &catalog_path).await?;
     tracing::info!(
         specimens = stats.specimens,
-        rooms = stats.rooms,
         families = stats.families,
         margin_notes = stats.margin_notes,
         "import complete"
@@ -163,7 +205,6 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let catalog = db::load_catalog(&pool).await?;
     tracing::info!(
         archive = catalog.archive.len(),
-        rooms = catalog.editorial.rooms.len(),
         families = catalog.editorial.families.len(),
         ?media_mode,
         "catalog loaded from database"
@@ -199,9 +240,8 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/room/{slug}", get(room))
         .route("/archive", get(archive))
-        .route("/guest/{author}/{rkey}", get(guest_room))
+        .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/colophon", get(colophon))
         .route("/admin", get(admin::dashboard))
@@ -211,23 +251,13 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         )
         .route("/admin/oauth/callback", get(admin::oauth_callback))
         .route("/admin/logout", axum::routing::post(admin::logout))
-        .route("/admin/hang", axum::routing::post(admin::hang))
-        .route("/admin/unhang", axum::routing::post(admin::unhang))
         .route(
-            "/admin/rooms/create",
-            axum::routing::post(admin::create_room),
+            "/admin/thread-rooms/add",
+            axum::routing::post(admin::add_thread_room),
         )
         .route(
-            "/admin/guest-rooms/add",
-            axum::routing::post(admin::add_guest_room),
-        )
-        .route(
-            "/admin/guest-rooms/remove",
-            axum::routing::post(admin::remove_guest_room),
-        )
-        .route(
-            "/admin/room/{slug}/update",
-            axum::routing::post(admin::update_room),
+            "/admin/thread-rooms/remove",
+            axum::routing::post(admin::remove_thread_room),
         )
         .route("/static/style.css", get(stylesheet))
         .route("/static/admin.css", get(admin_css))
@@ -247,35 +277,33 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 }
 
 async fn index(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
-    let guest_rooms = db::guest_rooms(&state.pool).await?;
-    Ok(views::index(&state.ctx().await?, &guest_rooms))
+    let ctx = state.ctx().await?;
+    let rooms = state.registered_rooms(&ctx).await;
+    Ok(views::index(&ctx, &rooms))
 }
 
-async fn guest_room(
+async fn thread_room(
     State(state): State<SharedState>,
     Path((author, rkey)): Path<(String, String)>,
 ) -> Result<Response, AppError> {
     let ctx = state.ctx().await?;
     let artist = &ctx.catalog.editorial.artist;
-    let room = state
+    let Some(room) = state
         .threads
         .fetch(&author, &rkey, &artist.did, &artist.handle)
-        .await?;
-    Ok(match room {
-        Some(room) => views::guest_room(&ctx, &room).into_response(),
-        None => not_found(),
-    })
-}
-
-async fn room(
-    State(state): State<SharedState>,
-    Path(slug): Path<String>,
-) -> Result<Response, AppError> {
-    let ctx = state.ctx().await?;
-    Ok(match ctx.catalog.room(&slug) {
-        Some(room) => views::room(&ctx, room).into_response(),
-        None => not_found(),
-    })
+        .await?
+    else {
+        return Ok(not_found());
+    };
+    // Registered artist rooms get plate numerals in registry order.
+    let plate = state
+        .registered_rooms(&ctx)
+        .await
+        .iter()
+        .filter(|h| h.is_by(&artist.did))
+        .position(|h| h.row.rkey == room.rkey && h.row.author_did == room.author_did)
+        .map(|i| i + 1);
+    Ok(views::thread_room(&ctx, &room, plate).into_response())
 }
 
 async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
@@ -287,13 +315,16 @@ async fn specimen(
     Path(rkey): Path<String>,
 ) -> Result<Response, AppError> {
     let ctx = state.ctx().await?;
-    Ok(match ctx.catalog.archive.get(&rkey) {
-        Some(specimen) => {
-            let room = ctx.catalog.room_of(&rkey);
-            views::specimen(&ctx, room, specimen).into_response()
-        }
-        None => not_found(),
-    })
+    if ctx.catalog.archive.get(&rkey).is_none() {
+        return Ok(not_found());
+    }
+    let rooms = state.registered_rooms(&ctx).await;
+    let hung_in: Vec<&HungRoom> = rooms
+        .iter()
+        .filter(|h| h.room.entries.iter().any(|e| e.specimen_rkey == rkey))
+        .collect();
+    let specimen = ctx.catalog.archive.get(&rkey).expect("checked above");
+    Ok(views::specimen(&ctx, &hung_in, specimen).into_response())
 }
 
 async fn colophon(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {

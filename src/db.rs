@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use anyhow::Context;
 use sqlx::PgPool;
 
-use crate::catalog::{
-    Archive, Artist, Catalog, Editorial, Family, MarginNote, Origin, Room, Specimen,
-};
+use crate::catalog::{Archive, Artist, Catalog, Editorial, Family, MarginNote, Origin, Specimen};
 
 /// Load the full catalog (archive + editorial layer) from the database.
 ///
@@ -38,27 +36,6 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
         url: row.url,
     })
     .collect();
-
-    let mut room_rkeys: HashMap<String, Vec<String>> = HashMap::new();
-    for row in
-        sqlx::query!("SELECT room_slug, rkey FROM room_specimens ORDER BY room_slug, position")
-            .fetch_all(pool)
-            .await?
-    {
-        room_rkeys.entry(row.room_slug).or_default().push(row.rkey);
-    }
-
-    let rooms = sqlx::query!("SELECT slug, title, description FROM rooms ORDER BY position")
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| Room {
-            rkeys: room_rkeys.remove(&row.slug).unwrap_or_default(),
-            slug: row.slug,
-            title: row.title,
-            description: row.description,
-        })
-        .collect();
 
     let mut family_rkeys: HashMap<String, Vec<String>> = HashMap::new();
     for row in
@@ -107,7 +84,6 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
                 text: meta.origin_text,
                 url: meta.origin_url,
             },
-            rooms,
             families,
             margin_notes,
         },
@@ -129,7 +105,6 @@ struct MetadataRow {
 
 pub struct ImportStats {
     pub specimens: usize,
-    pub rooms: usize,
     pub families: usize,
     pub margin_notes: usize,
 }
@@ -188,38 +163,12 @@ pub async fn import(
     sqlx::query!("DELETE FROM margin_notes")
         .execute(&mut *tx)
         .await?;
-    sqlx::query!("DELETE FROM room_specimens")
-        .execute(&mut *tx)
-        .await?;
     sqlx::query!("DELETE FROM family_members")
         .execute(&mut *tx)
         .await?;
-    sqlx::query!("DELETE FROM rooms").execute(&mut *tx).await?;
     sqlx::query!("DELETE FROM families")
         .execute(&mut *tx)
         .await?;
-
-    for (i, room) in editorial.rooms.iter().enumerate() {
-        sqlx::query!(
-            "INSERT INTO rooms (slug, title, description, position) VALUES ($1, $2, $3, $4)",
-            room.slug,
-            room.title,
-            room.description,
-            i as i32,
-        )
-        .execute(&mut *tx)
-        .await?;
-        for (j, rkey) in room.rkeys.iter().enumerate() {
-            sqlx::query!(
-                "INSERT INTO room_specimens (room_slug, rkey, position) VALUES ($1, $2, $3)",
-                room.slug,
-                rkey,
-                j as i32,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-    }
 
     for (i, family) in editorial.families.iter().enumerate() {
         sqlx::query!(
@@ -281,24 +230,24 @@ pub async fn import(
 
     Ok(ImportStats {
         specimens: specimen_count,
-        rooms: editorial.rooms.len(),
         families: editorial.families.len(),
         margin_notes: note_count,
     })
 }
 
-/// A registered guest room (a Bluesky thread hung on the front page).
-pub struct GuestRoomRow {
+/// A registered thread room. Rooms authored by the artist are the museum's
+/// first-class rooms; others hang as guest rooms.
+pub struct ThreadRoomRow {
     pub author_did: String,
     pub author_handle: String,
     pub rkey: String,
     pub title: String,
 }
 
-pub async fn guest_rooms(pool: &PgPool) -> anyhow::Result<Vec<GuestRoomRow>> {
+pub async fn thread_rooms(pool: &PgPool) -> anyhow::Result<Vec<ThreadRoomRow>> {
     Ok(sqlx::query_as!(
-        GuestRoomRow,
-        "SELECT author_did, author_handle, rkey, title FROM guest_rooms ORDER BY added_at"
+        ThreadRoomRow,
+        "SELECT author_did, author_handle, rkey, title FROM thread_rooms ORDER BY added_at"
     )
     .fetch_all(pool)
     .await?)
@@ -342,7 +291,6 @@ mod tests {
 
         let stats = import(&pool, &meta_path, &cat_path).await.unwrap();
         assert_eq!(stats.specimens, 2, "images are skipped");
-        assert_eq!(stats.rooms, 1);
         assert_eq!(stats.margin_notes, 1);
 
         // Idempotent: importing again must not duplicate anything.
@@ -352,20 +300,12 @@ mod tests {
         assert_eq!(catalog.archive.len(), 2);
         assert_eq!(catalog.editorial.artist.did, "did:plc:test");
 
-        let room = catalog.room("the-medusae").unwrap();
-        let members: Vec<_> = catalog
-            .room_specimens(room)
-            .map(|s| s.rkey.as_str())
-            .collect();
-        assert_eq!(members, ["3mb", "3ma"], "curated order preserved");
-
         let jelly = catalog.archive.get("3ma").unwrap();
         assert_eq!(jelly.caption, "Jellyfish!");
         assert_eq!(jelly.date, "2026-06-04");
         assert_eq!(jelly.file.as_deref(), Some("videos/a.mp4"));
         assert_eq!(catalog.notes_of("3ma")[0].text, "Shoggoth found");
         assert_eq!(catalog.families_of("3mb")[0].title, "The Jelly Line");
-        assert_eq!(catalog.room_of("3ma").unwrap().slug, "the-medusae");
 
         std::fs::remove_dir_all(&dir).ok();
     }
