@@ -129,6 +129,14 @@ pub fn index(ctx: &Ctx) -> Markup {
                         "the complete expedition record — every specimen has a permanent page here, "
                         "whether or not the survey has hung it in a room"
                     }
+                    div .latest-strip {
+                        @for s in catalog.archive.all().iter().rev().take(6) {
+                            a .latest-item href=(format!("/specimen/{}", s.rkey)) title=(s.label()) {
+                                img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
+                            }
+                        }
+                    }
+                    p .latest-caption { "the six most recent sightings" }
                     p .archive-link {
                         a href="/archive" { "browse all " (catalog.archive.len()) " specimens →" }
                     }

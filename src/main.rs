@@ -1,5 +1,6 @@
 mod catalog;
 mod db;
+mod ingest;
 mod views;
 
 use std::sync::Arc;
@@ -111,8 +112,21 @@ async fn main() -> anyhow::Result<()> {
     match std::env::args().nth(1).as_deref() {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
-        Some(other) => anyhow::bail!("unknown subcommand {other:?} — expected `serve` or `import`"),
+        Some("ingest-once") => ingest_once(pool).await,
+        Some(other) => anyhow::bail!(
+            "unknown subcommand {other:?} — expected `serve`, `import`, or `ingest-once`"
+        ),
     }
+}
+
+/// One manual poll of the artist's feed — useful for cron or debugging.
+async fn ingest_once(pool: PgPool) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let added = ingest::poll_once(&pool, &client).await?;
+    tracing::info!(count = added.len(), rkeys = ?added, "ingest-once complete");
+    Ok(())
 }
 
 /// Seed the database from the flat-file era (metadata.jsonl + catalog.json).
@@ -149,6 +163,17 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         ?media_mode,
         "catalog loaded from database"
     );
+
+    // Live ingest: poll for new posts in the background. PCG_POLL_SECS=0
+    // disables it.
+    let poll_secs: u64 = std::env::var("PCG_POLL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
+    if poll_secs > 0 {
+        tracing::info!(interval_secs = poll_secs, "starting ingest poller");
+        tokio::spawn(ingest::run(pool.clone(), poll_secs));
+    }
 
     let state: SharedState = Arc::new(AppState { pool, media_mode });
 

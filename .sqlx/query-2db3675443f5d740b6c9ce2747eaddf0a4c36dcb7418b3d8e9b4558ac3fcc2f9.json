@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT artist_did, artist_handle FROM gallery_meta",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "artist_did",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "artist_handle",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "2db3675443f5d740b6c9ce2747eaddf0a4c36dcb7418b3d8e9b4558ac3fcc2f9"
+}

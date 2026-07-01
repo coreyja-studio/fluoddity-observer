@@ -183,6 +183,34 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
 
 .archive-link { text-align: center; font-size: 1.1rem; }
 
+.latest-strip {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin: 0.4rem 0 0.3rem;
+}
+
+.latest-strip img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  background: #0c0a07;
+  border: 1px solid var(--ink);
+  padding: 3px;
+  transition: transform 0.2s ease;
+}
+
+.latest-item:hover img { transform: translateY(-2px); }
+
+.latest-caption {
+  text-align: center;
+  font-style: italic;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  margin: 0 0 0.6rem;
+}
+
 /* ---- archive ledger ---- */
 
 .archive-month {
