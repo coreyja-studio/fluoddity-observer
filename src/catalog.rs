@@ -1,19 +1,18 @@
 use std::collections::HashMap;
 
-use anyhow::Context;
 use serde::Deserialize;
 
 /// The full expedition record: every video specimen from the artist's
-/// archive (`metadata.jsonl`), chronological. Source of truth for specimen
-/// data — every entry gets a durable page whether curated or not.
+/// archive, chronological. Source of truth for specimen data — every entry
+/// gets a durable page whether curated or not.
 #[derive(Debug)]
 pub struct Archive {
     specimens: Vec<Specimen>,
     by_rkey: HashMap<String, usize>,
 }
 
-/// The editorial layer (`catalog.json`): rooms, lineage families, and margin
-/// notes, all referencing archive specimens by rkey.
+/// The editorial layer: rooms, lineage families, and margin notes, all
+/// referencing archive specimens by rkey.
 #[derive(Debug, Deserialize)]
 pub struct Editorial {
     pub artist: Artist,
@@ -49,8 +48,12 @@ pub struct Room {
 pub struct Specimen {
     pub rkey: String,
     pub cid: String,
-    pub file: String,
+    /// Path relative to the media dir; `None` when the blob hasn't been
+    /// pulled locally — such specimens are served from the Bluesky CDN even
+    /// in local media mode.
+    pub file: Option<String>,
     pub caption: String,
+    /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
     pub url: String,
 }
@@ -75,46 +78,15 @@ pub struct Origin {
     pub url: String,
 }
 
-/// One row of the archive's metadata.jsonl.
-#[derive(Debug, Deserialize)]
-struct MetadataRow {
-    file: String,
-    kind: String,
-    cid: String,
-    rkey: String,
-    caption: String,
-    #[serde(rename = "createdAt")]
-    created_at: String,
-    url: String,
-}
-
 impl Archive {
-    pub fn load(path: &str) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading archive metadata from {path}"))?;
-        let mut specimens: Vec<Specimen> = raw
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str::<MetadataRow>(l).context("parsing metadata.jsonl row"))
-            .collect::<anyhow::Result<Vec<_>>>()?
-            .into_iter()
-            .filter(|row| row.kind == "video")
-            .map(|row| Specimen {
-                rkey: row.rkey,
-                cid: row.cid,
-                file: row.file,
-                caption: row.caption,
-                date: row.created_at.chars().take(10).collect(),
-                url: row.url,
-            })
-            .collect();
+    pub fn new(mut specimens: Vec<Specimen>) -> Self {
         specimens.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.rkey.cmp(&b.rkey)));
         let by_rkey = specimens
             .iter()
             .enumerate()
             .map(|(i, s)| (s.rkey.clone(), i))
             .collect();
-        Ok(Self { specimens, by_rkey })
+        Self { specimens, by_rkey }
     }
 
     pub fn get(&self, rkey: &str) -> Option<&Specimen> {
@@ -128,26 +100,13 @@ impl Archive {
     pub fn len(&self) -> usize {
         self.specimens.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.specimens.is_empty()
+    }
 }
 
 impl Catalog {
-    pub fn load(catalog_path: &str, metadata_path: &str) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(catalog_path)
-            .with_context(|| format!("reading catalog from {catalog_path}"))?;
-        let editorial: Editorial = serde_json::from_str(&raw).context("parsing catalog.json")?;
-        let archive = Archive::load(metadata_path)?;
-        for room in &editorial.rooms {
-            for rkey in &room.rkeys {
-                anyhow::ensure!(
-                    archive.get(rkey).is_some(),
-                    "room {} references rkey {rkey} missing from archive",
-                    room.slug
-                );
-            }
-        }
-        Ok(Self { archive, editorial })
-    }
-
     pub fn room(&self, slug: &str) -> Option<&Room> {
         self.editorial.rooms.iter().find(|r| r.slug == slug)
     }
@@ -262,4 +221,62 @@ pub fn roman(n: usize) -> &'static str {
         "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
     ];
     NUMERALS.get(n.wrapping_sub(1)).copied().unwrap_or("—")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn specimen(caption: &str) -> Specimen {
+        Specimen {
+            rkey: "3mtest".into(),
+            cid: "bafytest".into(),
+            file: None,
+            caption: caption.into(),
+            date: "2026-06-04".into(),
+            url: "https://example.test".into(),
+        }
+    }
+
+    #[test]
+    fn short_caption_is_the_label() {
+        let s = specimen("Jellyfish!");
+        assert_eq!(s.label(), "Jellyfish!");
+        assert!(s.label_is_full_caption());
+    }
+
+    #[test]
+    fn long_caption_ellipsizes_at_word_boundary() {
+        let s = specimen(
+            "Ouroboros tentacle dissolves into bowler hat jellyfish and jumping anemones.",
+        );
+        let label = s.label();
+        assert!(label.ends_with('…'), "label: {label}");
+        assert!(label.chars().count() <= 49);
+        assert!(!s.label_is_full_caption());
+    }
+
+    #[test]
+    fn empty_caption_gets_untitled_label() {
+        let s = specimen("");
+        assert_eq!(s.label(), "Untitled · 4 June 2026");
+    }
+
+    #[test]
+    fn dates_render_naturalist_style() {
+        assert_eq!(pretty_date("2026-06-04"), "4 June 2026");
+        assert_eq!(pretty_month("2026-06"), "June 2026");
+    }
+
+    #[test]
+    fn archive_sorts_and_indexes() {
+        let mut a = specimen("a");
+        a.rkey = "b-later".into();
+        a.date = "2026-06-05".into();
+        let mut b = specimen("b");
+        b.rkey = "a-earlier".into();
+        let archive = Archive::new(vec![a, b]);
+        assert_eq!(archive.all()[0].rkey, "a-earlier");
+        assert_eq!(archive.get("b-later").unwrap().date, "2026-06-05");
+    }
 }

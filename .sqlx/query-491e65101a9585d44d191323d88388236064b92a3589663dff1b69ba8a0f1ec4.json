@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT room_slug, rkey FROM room_specimens ORDER BY room_slug, position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "room_slug",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "rkey",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "491e65101a9585d44d191323d88388236064b92a3589663dff1b69ba8a0f1ec4"
+}

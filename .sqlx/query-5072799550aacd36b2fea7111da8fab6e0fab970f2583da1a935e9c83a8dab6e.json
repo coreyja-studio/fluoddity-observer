@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO gallery_meta\n             (only_row, artist_handle, artist_did, artist_name,\n              origin_handle, origin_text, origin_url)\n         VALUES (TRUE, $1, $2, $3, $4, $5, $6)\n         ON CONFLICT (only_row) DO UPDATE\n         SET artist_handle = EXCLUDED.artist_handle, artist_did = EXCLUDED.artist_did,\n             artist_name = EXCLUDED.artist_name, origin_handle = EXCLUDED.origin_handle,\n             origin_text = EXCLUDED.origin_text, origin_url = EXCLUDED.origin_url",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5072799550aacd36b2fea7111da8fab6e0fab970f2583da1a935e9c83a8dab6e"
+}

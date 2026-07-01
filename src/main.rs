@@ -1,4 +1,5 @@
 mod catalog;
+mod db;
 mod views;
 
 use std::sync::Arc;
@@ -11,31 +12,45 @@ use axum::{
     routing::get,
 };
 use catalog::Catalog;
+use sqlx::PgPool;
 use tower_http::services::ServeDir;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaMode {
-    /// Serve mp4s from the local archive directory under /media.
+    /// Serve mp4s from the local archive directory under /media, falling
+    /// back to the Bluesky CDN for specimens without a local file.
     Local,
-    /// Point at Bluesky's video CDN (HLS) — no local media hosting needed.
+    /// Point everything at Bluesky's video CDN (HLS) — no local media needed.
     Cdn,
 }
 
 pub struct AppState {
+    pub pool: PgPool,
+    pub media_mode: MediaMode,
+}
+
+type SharedState = Arc<AppState>;
+
+/// Per-request rendering context: a fresh catalog snapshot plus media config.
+pub struct Ctx {
     pub catalog: Catalog,
     pub media_mode: MediaMode,
 }
 
-impl AppState {
+impl Ctx {
     /// (video src, hls url for hls.js, poster url)
     pub fn video_sources(&self, s: &catalog::Specimen) -> (String, Option<String>, String) {
-        match self.media_mode {
-            MediaMode::Local => (
-                format!("/media/{}", s.file),
+        let local = match self.media_mode {
+            MediaMode::Local => s.file.as_deref(),
+            MediaMode::Cdn => None,
+        };
+        match local {
+            Some(file) => (
+                format!("/media/{file}"),
                 None,
                 format!("/media/posters/{}.jpg", s.rkey),
             ),
-            MediaMode::Cdn => {
+            None => {
                 let did = &self.catalog.editorial.artist.did;
                 let playlist =
                     format!("https://video.bsky.app/watch/{did}/{}/playlist.m3u8", s.cid);
@@ -46,7 +61,39 @@ impl AppState {
     }
 }
 
-type SharedState = Arc<AppState>;
+impl AppState {
+    async fn ctx(&self) -> anyhow::Result<Ctx> {
+        Ok(Ctx {
+            catalog: db::load_catalog(&self.pool).await?,
+            media_mode: self.media_mode,
+        })
+    }
+}
+
+/// Anyhow-backed handler error that renders as a plain 500.
+struct AppError(anyhow::Error);
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        tracing::error!(error = ?self.0, "request failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "The guide's pages are stuck together. Try again shortly.",
+        )
+            .into_response()
+    }
+}
+
+impl<E: Into<anyhow::Error>> From<E> for AppError {
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
+}
+
+fn media_dir() -> String {
+    std::env::var("PCG_MEDIA_DIR")
+        .unwrap_or_else(|_| "/home/coreyja.linux/paperclips-media/oops".to_string())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -56,9 +103,35 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set (see .mise.toml)"))?;
+    let pool = PgPool::connect(&database_url).await?;
+    sqlx::migrate!().run(&pool).await?;
+
+    match std::env::args().nth(1).as_deref() {
+        None | Some("serve") => serve(pool).await,
+        Some("import") => import(pool).await,
+        Some(other) => anyhow::bail!("unknown subcommand {other:?} — expected `serve` or `import`"),
+    }
+}
+
+/// Seed the database from the flat-file era (metadata.jsonl + catalog.json).
+async fn import(pool: PgPool) -> anyhow::Result<()> {
+    let metadata_path =
+        std::env::var("PCG_METADATA").unwrap_or_else(|_| format!("{}/metadata.jsonl", media_dir()));
     let catalog_path = std::env::var("PCG_CATALOG").unwrap_or_else(|_| "catalog.json".to_string());
-    let media_dir = std::env::var("PCG_MEDIA_DIR")
-        .unwrap_or_else(|_| "/home/coreyja.linux/paperclips-media/oops".to_string());
+    let stats = db::import(&pool, &metadata_path, &catalog_path).await?;
+    tracing::info!(
+        specimens = stats.specimens,
+        rooms = stats.rooms,
+        families = stats.families,
+        margin_notes = stats.margin_notes,
+        "import complete"
+    );
+    Ok(())
+}
+
+async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let media_mode = match std::env::var("PCG_MEDIA_MODE").as_deref() {
         Ok("cdn") => MediaMode::Cdn,
         _ => MediaMode::Local,
@@ -68,28 +141,16 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(4601);
 
-    let metadata_path =
-        std::env::var("PCG_METADATA").unwrap_or_else(|_| format!("{media_dir}/metadata.jsonl"));
-
-    let catalog = Catalog::load(&catalog_path, &metadata_path)?;
+    let catalog = db::load_catalog(&pool).await?;
     tracing::info!(
         archive = catalog.archive.len(),
         rooms = catalog.editorial.rooms.len(),
-        curated = catalog
-            .editorial
-            .rooms
-            .iter()
-            .map(|r| r.rkeys.len())
-            .sum::<usize>(),
         families = catalog.editorial.families.len(),
         ?media_mode,
-        "catalog loaded"
+        "catalog loaded from database"
     );
 
-    let state: SharedState = Arc::new(AppState {
-        catalog,
-        media_mode,
-    });
+    let state: SharedState = Arc::new(AppState { pool, media_mode });
 
     let app = Router::new()
         .route("/", get(index))
@@ -99,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/colophon", get(colophon))
         .route("/static/style.css", get(stylesheet))
         .route("/static/gallery.js", get(gallery_js))
-        .nest_service("/media", ServeDir::new(media_dir))
+        .nest_service("/media", ServeDir::new(media_dir()))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
@@ -113,33 +174,41 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn index(State(state): State<SharedState>) -> maud::Markup {
-    views::index(&state)
+async fn index(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
+    Ok(views::index(&state.ctx().await?))
 }
 
-async fn room(State(state): State<SharedState>, Path(slug): Path<String>) -> Response {
-    match state.catalog.room(&slug) {
-        Some(room) => views::room(&state, room).into_response(),
+async fn room(
+    State(state): State<SharedState>,
+    Path(slug): Path<String>,
+) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    Ok(match ctx.catalog.room(&slug) {
+        Some(room) => views::room(&ctx, room).into_response(),
         None => not_found(),
-    }
+    })
 }
 
-async fn archive(State(state): State<SharedState>) -> maud::Markup {
-    views::archive(&state)
+async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
+    Ok(views::archive(&state.ctx().await?))
 }
 
-async fn specimen(State(state): State<SharedState>, Path(rkey): Path<String>) -> Response {
-    match state.catalog.archive.get(&rkey) {
+async fn specimen(
+    State(state): State<SharedState>,
+    Path(rkey): Path<String>,
+) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    Ok(match ctx.catalog.archive.get(&rkey) {
         Some(specimen) => {
-            let room = state.catalog.room_of(&rkey);
-            views::specimen(&state, room, specimen).into_response()
+            let room = ctx.catalog.room_of(&rkey);
+            views::specimen(&ctx, room, specimen).into_response()
         }
         None => not_found(),
-    }
+    })
 }
 
-async fn colophon(State(state): State<SharedState>) -> maud::Markup {
-    views::colophon(&state)
+async fn colophon(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
+    Ok(views::colophon(&state.ctx().await?))
 }
 
 async fn stylesheet() -> impl IntoResponse {

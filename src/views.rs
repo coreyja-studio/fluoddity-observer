@@ -1,14 +1,13 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{
-    SharedState,
+    Ctx,
     catalog::{Family, Room, Specimen, pretty_date, pretty_month, roman},
 };
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Caveat:wght@400;600&display=swap";
 
-fn base(state: &SharedState, title: &str, body: Markup) -> Markup {
-    let cdn_mode = state.media_mode == crate::MediaMode::Cdn;
+fn base(title: &str, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -21,9 +20,9 @@ fn base(state: &SharedState, title: &str, body: Markup) -> Markup {
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href=(FONTS);
                 link rel="stylesheet" href="/static/style.css";
-                @if cdn_mode {
-                    script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
-                }
+                // Freshly ingested specimens stream from the Bluesky CDN via
+                // HLS even in local media mode, so hls.js is always on hand.
+                script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
             }
             body {
                 (body)
@@ -38,8 +37,8 @@ fn base(state: &SharedState, title: &str, body: Markup) -> Markup {
 }
 
 /// A looping specimen video. Clicking it opens the full-bleed behold view.
-fn specimen_video(state: &SharedState, s: &Specimen) -> Markup {
-    let (src, hls, poster) = state.video_sources(s);
+fn specimen_video(ctx: &Ctx, s: &Specimen) -> Markup {
+    let (src, hls, poster) = ctx.video_sources(s);
     html! {
         video .specimen-video
             src=(src)
@@ -51,8 +50,8 @@ fn specimen_video(state: &SharedState, s: &Specimen) -> Markup {
     }
 }
 
-fn page_header(state: &SharedState, plate: &str) -> Markup {
-    let artist = &state.catalog.editorial.artist;
+fn page_header(ctx: &Ctx, plate: &str) -> Markup {
+    let artist = &ctx.catalog.editorial.artist;
     html! {
         header .masthead {
             p .plate-no { (plate) }
@@ -67,15 +66,14 @@ fn page_header(state: &SharedState, plate: &str) -> Markup {
     }
 }
 
-pub fn index(state: &SharedState) -> Markup {
-    let catalog = &state.catalog;
+pub fn index(ctx: &Ctx) -> Markup {
+    let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
     base(
-        state,
         "Fluoddity — a field guide",
         html! {
             main .sheet {
-                (page_header(state, "Frontispiece"))
+                (page_header(ctx, "Frontispiece"))
 
                 blockquote .origin-note {
                     p { "“" (editorial.origin.text) "”" }
@@ -94,7 +92,7 @@ pub fn index(state: &SharedState) -> Markup {
                         a .contents-row href=(format!("/room/{}", room.slug)) {
                             div .contents-thumbs {
                                 @for s in catalog.room_specimens(room).take(3) {
-                                    img src=(state.video_sources(s).2) alt="" loading="lazy";
+                                    img src=(ctx.video_sources(s).2) alt="" loading="lazy";
                                 }
                             }
                             div .contents-text {
@@ -144,8 +142,8 @@ pub fn index(state: &SharedState) -> Markup {
     )
 }
 
-pub fn room(state: &SharedState, room: &Room) -> Markup {
-    let plate_index = state
+pub fn room(ctx: &Ctx, room: &Room) -> Markup {
+    let plate_index = ctx
         .catalog
         .editorial
         .rooms
@@ -154,28 +152,27 @@ pub fn room(state: &SharedState, room: &Room) -> Markup {
         .map(|i| i + 1)
         .unwrap_or(0);
     base(
-        state,
         &format!("{} — Fluoddity", room.title),
         html! {
             main .sheet {
-                (page_header(state, &format!("Plate {}", roman(plate_index))))
+                (page_header(ctx, &format!("Plate {}", roman(plate_index))))
 
                 section {
                     h2 .room-label { (room.title) }
                     p .room-sublabel { (room.description) " — as noted by the artist" }
 
                     div .plate-grid {
-                        @for (i, s) in state.catalog.room_specimens(room).enumerate() {
+                        @for (i, s) in ctx.catalog.room_specimens(room).enumerate() {
                             figure .specimen {
-                                (specimen_video(state, s))
+                                (specimen_video(ctx, s))
                                 figcaption {
                                     p .fig-no { "Fig. " (i + 1) }
                                     p .fig-name {
                                         a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
                                     }
                                     p .fig-date { "collected " (pretty_date(&s.date)) }
-                                    @if !state.catalog.notes_of(&s.rkey).is_empty()
-                                        || !state.catalog.families_of(&s.rkey).is_empty() {
+                                    @if !ctx.catalog.notes_of(&s.rkey).is_empty()
+                                        || !ctx.catalog.families_of(&s.rkey).is_empty() {
                                         p .fig-more {
                                             a href=(format!("/specimen/{}", s.rkey)) { "field notes →" }
                                         }
@@ -194,8 +191,8 @@ pub fn room(state: &SharedState, room: &Room) -> Markup {
     )
 }
 
-pub fn archive(state: &SharedState) -> Markup {
-    let specimens = state.catalog.archive.all();
+pub fn archive(ctx: &Ctx) -> Markup {
+    let specimens = ctx.catalog.archive.all();
     // Group chronologically by month for ledger headings.
     let mut months: Vec<(String, Vec<&Specimen>)> = Vec::new();
     for s in specimens {
@@ -206,11 +203,10 @@ pub fn archive(state: &SharedState) -> Markup {
         }
     }
     base(
-        state,
         "The Archive — Fluoddity",
         html! {
             main .sheet {
-                (page_header(state, "The Archive"))
+                (page_header(ctx, "The Archive"))
 
                 section {
                     h2 .room-label { "The Complete Expedition Record" }
@@ -225,7 +221,7 @@ pub fn archive(state: &SharedState) -> Markup {
                         div .archive-grid {
                             @for s in list {
                                 a .archive-item href=(format!("/specimen/{}", s.rkey)) {
-                                    img src=(state.video_sources(s).2) alt=(s.label()) loading="lazy";
+                                    img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
                                     span .archive-label { (s.label()) }
                                     span .archive-date { (pretty_date(&s.date)) }
                                 }
@@ -242,18 +238,18 @@ pub fn archive(state: &SharedState) -> Markup {
     )
 }
 
-fn family_strip(state: &SharedState, family: &Family, current_rkey: &str) -> Markup {
+fn family_strip(ctx: &Ctx, family: &Family, current_rkey: &str) -> Markup {
     html! {
         section .family {
             h3 .family-title { "Lineage · " (family.title) }
             div .family-strip {
                 @for (i, rkey) in family.rkeys.iter().enumerate() {
-                    @if let Some(member) = state.catalog.archive.get(rkey) {
+                    @if let Some(member) = ctx.catalog.archive.get(rkey) {
                         @if i > 0 { span .family-arrow aria-hidden="true" { "⟿" } }
                         a .family-member
                             .current[member.rkey == current_rkey]
                             href=(format!("/specimen/{}", member.rkey)) {
-                            img src=(state.video_sources(member).2) alt=(member.label()) loading="lazy";
+                            img src=(ctx.video_sources(member).2) alt=(member.label()) loading="lazy";
                             span { (pretty_date(&member.date)) }
                         }
                     }
@@ -263,19 +259,18 @@ fn family_strip(state: &SharedState, family: &Family, current_rkey: &str) -> Mar
     }
 }
 
-pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Markup {
-    let families = state.catalog.families_of(&s.rkey);
-    let notes = state.catalog.notes_of(&s.rkey);
+pub fn specimen(ctx: &Ctx, room: Option<&Room>, s: &Specimen) -> Markup {
+    let families = ctx.catalog.families_of(&s.rkey);
+    let notes = ctx.catalog.notes_of(&s.rkey);
     let plate = room.map(|r| r.title.as_str()).unwrap_or("The Archive");
     base(
-        state,
         &format!("{} — Fluoddity", s.label()),
         html! {
             main .sheet .specimen-sheet {
-                (page_header(state, plate))
+                (page_header(ctx, plate))
 
                 figure .specimen .specimen-solo {
-                    (specimen_video(state, s))
+                    (specimen_video(ctx, s))
                     figcaption {
                         p .fig-name-big { (s.label()) }
                         p .fig-date { "collected " (pretty_date(&s.date)) }
@@ -313,7 +308,7 @@ pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Marku
                 }
 
                 @for family in &families {
-                    (family_strip(state, family, &s.rkey))
+                    (family_strip(ctx, family, &s.rkey))
                 }
 
                 nav .room-nav {
@@ -328,14 +323,13 @@ pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Marku
     )
 }
 
-pub fn colophon(state: &SharedState) -> Markup {
-    let editorial = &state.catalog.editorial;
+pub fn colophon(ctx: &Ctx) -> Markup {
+    let editorial = &ctx.catalog.editorial;
     base(
-        state,
         "Colophon — Fluoddity",
         html! {
             main .sheet .colophon {
-                (page_header(state, "Colophon"))
+                (page_header(ctx, "Colophon"))
 
                 section .prose {
                     h2 .room-label { "Why this guide exists" }

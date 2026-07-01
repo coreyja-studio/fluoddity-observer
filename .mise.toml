@@ -1,0 +1,2 @@
+[env]
+DATABASE_URL = "postgresql:///paperclips_gallery?host=/var/run/postgresql"

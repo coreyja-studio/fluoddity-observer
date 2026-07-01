@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM family_members",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "98da21aea7f39dedc70cd3db9f105a9089cc5e9650dd88fa47ba6655c9b90c2b"
+}
