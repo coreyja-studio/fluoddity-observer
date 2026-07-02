@@ -9,15 +9,60 @@ use crate::{
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Caveat:wght@400;600&display=swap";
 
-fn base(title: &str, body: Markup) -> Markup {
+/// Per-page metadata for the head: title, description, and the OpenGraph
+/// card that unfurls when a page is shared (on Bluesky, most importantly).
+pub struct PageMeta {
+    pub title: String,
+    pub description: String,
+    /// Absolute image URL — CDN thumbnails work in every media mode.
+    pub image: Option<String>,
+    /// Site-relative path, joined with PCG_PUBLIC_URL for og:url.
+    pub path: String,
+}
+
+const DEFAULT_DESCRIPTION: &str = "A field guide to Fluoddity — a universe that only exists inside one GPU. As observed by Oops! All Paperclips.";
+
+impl PageMeta {
+    fn new(title: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: DEFAULT_DESCRIPTION.to_string(),
+            image: None,
+            path: path.into(),
+        }
+    }
+}
+
+/// Absolute thumbnail for a specimen, for OG cards.
+fn og_thumb(ctx: &Ctx, s: &Specimen) -> String {
+    format!(
+        "https://video.bsky.app/watch/{}/{}/thumbnail.jpg",
+        ctx.catalog.editorial.artist.did, s.cid
+    )
+}
+
+fn base(meta: PageMeta, body: Markup) -> Markup {
+    let og_url = format!("{}{}", crate::bot::public_url(), meta.path);
     html! {
         (DOCTYPE)
         html lang="en" {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { (title) }
-                meta name="description" content="A field guide to Fluoddity — a universe that only exists inside one GPU. As observed by Oops! All Paperclips.";
+                title { (meta.title) }
+                meta name="description" content=(meta.description);
+                meta property="og:site_name" content="Fluoddity — a field guide";
+                meta property="og:type" content="website";
+                meta property="og:title" content=(meta.title);
+                meta property="og:description" content=(meta.description);
+                meta property="og:url" content=(og_url);
+                @if let Some(image) = &meta.image {
+                    meta property="og:image" content=(image);
+                    meta name="twitter:card" content="summary_large_image";
+                    meta name="twitter:image" content=(image);
+                }
+                meta name="twitter:title" content=(meta.title);
+                meta name="twitter:description" content=(meta.description);
                 link rel="preconnect" href="https://fonts.googleapis.com";
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href=(FONTS);
@@ -71,8 +116,10 @@ fn page_header(ctx: &Ctx, plate: &str) -> Markup {
 pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
     let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
+    let mut meta = PageMeta::new("Fluoddity — a field guide", "/");
+    meta.image = catalog.archive.all().last().map(|s| og_thumb(ctx, s));
     base(
-        "Fluoddity — a field guide",
+        meta,
         html! {
             main .sheet {
                 (page_header(ctx, "Frontispiece"))
@@ -189,8 +236,14 @@ pub fn archive(ctx: &Ctx) -> Markup {
             _ => months.push((month, vec![s])),
         }
     }
+    let mut meta = PageMeta::new("The Archive — Fluoddity", "/archive");
+    meta.description = format!(
+        "The complete expedition record — {} specimens, chronological, every one with a permanent page.",
+        specimens.len()
+    );
+    meta.image = specimens.last().map(|s| og_thumb(ctx, s));
     base(
-        "The Archive — Fluoddity",
+        meta,
         html! {
             main .sheet {
                 (page_header(ctx, "The Archive"))
@@ -260,8 +313,18 @@ pub fn specimen(
         .first()
         .map(|h| h.room.title.as_str())
         .unwrap_or("The Archive");
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", s.label()),
+        format!("/specimen/{}", s.rkey),
+    );
+    meta.description = format!(
+        "“{}” — collected {}. From the Fluoddity expedition record.",
+        crate::catalog::ellipsize(&s.caption.replace('\n', " "), 180),
+        pretty_date(&s.date),
+    );
+    meta.image = Some(og_thumb(ctx, s));
     base(
-        &format!("{} — Fluoddity", s.label()),
+        meta,
         html! {
             main .sheet .specimen-sheet {
                 (page_header(ctx, plate))
@@ -359,8 +422,22 @@ pub fn specimen(
 }
 
 pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup {
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", room.title),
+        format!("/room/{}/{}", room.author_handle, room.rkey),
+    );
+    meta.description = format!(
+        "A room curated by {} — {} specimens, rendered live from their Bluesky thread.",
+        room.author_display,
+        room.entries.len(),
+    );
+    meta.image = room
+        .entries
+        .iter()
+        .find_map(|e| ctx.catalog.archive.get(&e.specimen_rkey))
+        .map(|s| og_thumb(ctx, s));
     base(
-        &format!("{} — Fluoddity", room.title),
+        meta,
         html! {
             main .sheet {
                 @let plate_label = match plate {
@@ -438,8 +515,22 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
     } else {
         format!("Tagged · {}", tag_display(tag))
     };
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", tag_display(tag)),
+        format!("/tag/{tag}"),
+    );
+    meta.description = if kind == "lineage" {
+        format!(
+            "Lineage · {} — {} forms, oldest first. Watch it evolve.",
+            tag_display(tag),
+            members.len()
+        )
+    } else {
+        format!("{} specimens tagged “{}”.", members.len(), tag_display(tag))
+    };
+    meta.image = members.first().map(|s| og_thumb(ctx, s));
     base(
-        &format!("{} — Fluoddity", tag_display(tag)),
+        meta,
         html! {
             main .sheet {
                 (page_header(ctx, &heading))
@@ -481,7 +572,7 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
 pub fn colophon(ctx: &Ctx) -> Markup {
     let editorial = &ctx.catalog.editorial;
     base(
-        "Colophon — Fluoddity",
+        PageMeta::new("Colophon — Fluoddity", "/colophon"),
         html! {
             main .sheet .colophon {
                 (page_header(ctx, "Colophon"))
