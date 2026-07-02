@@ -479,7 +479,7 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                         }
                     }
 
-                    div .plate-grid {
+                    div .thread-flow {
                         @for (i, entry) in room
                             .entries
                             .iter()
@@ -487,19 +487,21 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                             .enumerate()
                         {
                             @let (entry, s) = entry;
-                            figure .specimen {
+                            figure .specimen .thread-entry {
                                 (specimen_video(ctx, s))
                                 figcaption {
                                     p .fig-no { "Fig. " (i + 1) }
-                                    p .fig-name {
-                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
-                                    }
-                                    p .fig-date { "collected " (pretty_date(&s.date)) }
-                                    @if entry.note.trim() != s.caption.trim() && !entry.note.trim().is_empty() {
-                                        p .curator-note {
-                                            "“" (entry.note) "”"
-                                            span .margin-handle { " — @" (room.author_handle) }
+                                    @if !entry.note.trim().is_empty() {
+                                        p .thread-note { (entry.note) }
+                                    } @else {
+                                        p .fig-name {
+                                            a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
                                         }
+                                    }
+                                    p .fig-date {
+                                        "collected " (pretty_date(&s.date))
+                                        " · "
+                                        a href=(format!("/specimen/{}", s.rkey)) { "field notes →" }
                                     }
                                 }
                             }

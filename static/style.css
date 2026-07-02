@@ -588,3 +588,27 @@ body.beholding { overflow: hidden; }
   color: var(--ink-soft);
   margin: -0.6rem 0 1.6rem;
 }
+
+
+/* ---- thread rooms read as the conversation ---- */
+
+.thread-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.thread-entry figcaption { text-align: left; }
+
+.thread-entry .fig-no { text-align: center; }
+
+.thread-note {
+  white-space: pre-line;
+  font-size: 1.12rem;
+  line-height: 1.55;
+  margin: 0.5rem 0 0;
+}
+
+.thread-entry .fig-date { text-align: center; margin-top: 0.6rem; }
