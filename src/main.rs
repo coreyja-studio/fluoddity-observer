@@ -34,6 +34,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
     pub oauth: auth::AtriumOAuthClient,
+    pub oauth_mode: auth::OauthMode,
     pub threads: StdArc<threads::ThreadFetcher>,
 }
 
@@ -151,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
+        // Logs on stderr; stdout stays clean for subcommand output
+        // (gen-oauth-key prints the key).
+        .with_writer(std::io::stderr)
         .init();
 
     let database_url = std::env::var("DATABASE_URL")
@@ -163,8 +167,12 @@ async fn main() -> anyhow::Result<()> {
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
         Some("bot-once") => bot_once(pool).await,
+        Some("gen-oauth-key") => {
+            println!("{}", auth::generate_private_key()?);
+            Ok(())
+        }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, or `bot-once`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `bot-once`, or `gen-oauth-key`"
         ),
     }
 }
@@ -237,11 +245,12 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     }
 
     auth::seed_curators(&pool).await?;
-    // Loopback OAuth client: the callback host must stay 127.0.0.1 until the
-    // hosted (confidential-client) metadata lands with a public domain.
-    let callback_url = std::env::var("PCG_OAUTH_CALLBACK_URL")
-        .unwrap_or_else(|_| format!("http://127.0.0.1:{port}/admin/oauth/callback"));
-    let oauth = auth::build_oauth_client(pool.clone(), callback_url)?;
+    let oauth_mode = auth::OauthMode::from_env(port)?;
+    tracing::info!(
+        confidential = oauth_mode.is_confidential(),
+        "oauth client mode"
+    );
+    let oauth = auth::build_oauth_client(pool.clone(), &oauth_mode)?;
 
     let http = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
@@ -250,6 +259,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         pool,
         media_mode,
         oauth,
+        oauth_mode,
         threads: StdArc::new(threads::ThreadFetcher::new(http)),
     });
 
@@ -273,6 +283,8 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
             get(admin::login_page).post(admin::login_submit),
         )
         .route("/admin/oauth/callback", get(admin::oauth_callback))
+        .route("/oauth/client-metadata.json", get(oauth_client_metadata))
+        .route("/oauth/jwks.json", get(oauth_jwks))
         .route("/admin/logout", axum::routing::post(admin::logout))
         .route(
             "/admin/thread-rooms/add",
@@ -366,6 +378,21 @@ async fn specimen(
 
 async fn colophon(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
     Ok(views::colophon(&state.ctx().await?))
+}
+
+/// Confidential-client documents; 404 in loopback mode.
+async fn oauth_client_metadata(State(state): State<SharedState>) -> Response {
+    match state.oauth_mode.client_metadata_doc() {
+        Some(doc) => axum::Json(doc).into_response(),
+        None => not_found(),
+    }
+}
+
+async fn oauth_jwks(State(state): State<SharedState>) -> Response {
+    match state.oauth_mode.jwks() {
+        Some(jwks) => axum::Json(jwks).into_response(),
+        None => not_found(),
+    }
 }
 
 async fn stylesheet() -> impl IntoResponse {

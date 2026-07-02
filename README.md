@@ -104,10 +104,15 @@ only: the atproto tokens are discarded the moment the DID is verified.
   with `PCG_ADMIN_DIDS="did:plc:xyz=handle,did:plc:abc"`.
 - Capabilities: register/remove thread rooms. Room contents are managed by
   editing the threads themselves, on Bluesky.
-- The OAuth client currently runs in atproto *loopback* mode, so the browser
-  must reach the site via `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>`
-  then http://127.0.0.1:4601/admin). The hosted confidential-client metadata
-  (public client_id URL + JWKS) lands together with hosting.
+- **OAuth modes** (from env):
+  - *Confidential* (hosted): set `PCG_PUBLIC_URL` and `PCG_OAUTH_PRIVATE_KEY`
+    (generate with `paperclips-gallery gen-oauth-key`). The client identifies
+    itself via `/oauth/client-metadata.json` + `/oauth/jwks.json`
+    (private_key_jwt, ES256, DPoP-bound). Works from any browser once the
+    site is publicly reachable.
+  - *Loopback* (dev): neither set. The browser must reach the site via
+    `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>` then
+    http://127.0.0.1:4601/admin).
 
 ## Curation
 
