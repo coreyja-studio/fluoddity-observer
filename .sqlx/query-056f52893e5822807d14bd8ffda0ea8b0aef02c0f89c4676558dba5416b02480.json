@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO margin_notes (rkey, handle, note, position)\n                   SELECT $1, $2, $3, COALESCE(MAX(position) + 1, 0)\n                   FROM margin_notes WHERE rkey = $1\n                   HAVING count(*) < $4\n                   ON CONFLICT (rkey, handle, note) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "056f52893e5822807d14bd8ffda0ea8b0aef02c0f89c4676558dba5416b02480"
+}

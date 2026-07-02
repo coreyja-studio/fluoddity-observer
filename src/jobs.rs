@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, bot, ingest};
+use crate::{AppState, bot, ingest, margin_notes};
 
 fn http_client() -> cja::Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -84,4 +84,30 @@ impl cja::jobs::Job<AppState> for WeeklyWrapup {
     }
 }
 
-cja::impl_job_registry!(AppState, IngestPoll, ProcessMentions, WeeklyWrapup);
+/// Re-pull quote-posts for every specimen; new community commentary
+/// becomes margin notes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshMarginNotes;
+
+#[async_trait::async_trait]
+impl cja::jobs::Job<AppState> for RefreshMarginNotes {
+    const NAME: &'static str = "RefreshMarginNotes";
+
+    async fn run(&self, state: AppState) -> cja::Result<()> {
+        let added = margin_notes::refresh_once(&state.pool, &http_client()?)
+            .await
+            .map_err(to_eyre)?;
+        if added > 0 {
+            tracing::info!(added, "margin notes refreshed");
+        }
+        Ok(())
+    }
+}
+
+cja::impl_job_registry!(
+    AppState,
+    IngestPoll,
+    ProcessMentions,
+    WeeklyWrapup,
+    RefreshMarginNotes
+);

@@ -22,6 +22,12 @@ fn registry() -> CronRegistry<AppState> {
         );
     }
 
+    registry.register_job(
+        jobs::RefreshMarginNotes,
+        Some("re-pull quote-posts so the margins stay current"),
+        Duration::from_secs(24 * 60 * 60),
+    );
+
     if bot::BotConfig::from_env().is_some() {
         let bot_secs: u64 = std::env::var("PCG_BOT_POLL_SECS")
             .ok()

@@ -6,6 +6,7 @@ mod cron;
 mod db;
 mod ingest;
 mod jobs;
+mod margin_notes;
 mod threads;
 mod views;
 
@@ -182,6 +183,7 @@ async fn main() -> anyhow::Result<()> {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
+        Some("refresh-notes") => refresh_notes(pool).await,
         Some("bot-once") => bot_once(pool).await,
         Some("bot-weekly") => bot_weekly(pool).await,
         Some("gen-oauth-key") => {
@@ -189,7 +191,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `refresh-notes`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -216,6 +218,16 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
         margin_notes = stats.margin_notes,
         "import complete"
     );
+    Ok(())
+}
+
+/// One manual margin-note refresh across the whole archive.
+async fn refresh_notes(pool: PgPool) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let added = margin_notes::refresh_once(&pool, &client).await?;
+    tracing::info!(added, "margin note refresh complete");
     Ok(())
 }
 
