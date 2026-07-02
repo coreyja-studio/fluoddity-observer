@@ -278,26 +278,44 @@ impl ThreadFetcher {
         };
 
         let uri = format!("at://{did}/app.bsky.feed.post/{rkey}");
-        let response = self
-            .client
-            .get(format!("{PUBLIC_API}/xrpc/app.bsky.feed.getPostThread"))
-            .query(&[("uri", uri.as_str()), ("depth", "100")])
-            .send()
-            .await?;
-        if response.status() == reqwest::StatusCode::BAD_REQUEST
-            || response.status() == reqwest::StatusCode::NOT_FOUND
-        {
-            return Ok(None);
-        }
-        let body: serde_json::Value = response
-            .error_for_status()
-            .context("fetching thread")?
-            .json()
-            .await?;
-
-        let Some(room) = parse_thread(&body, artist_did, artist_handle) else {
+        let Some(body) = self.fetch_thread_json(&uri).await? else {
             return Ok(None);
         };
+
+        let Some(mut room) = parse_thread(&body, artist_did, artist_handle) else {
+            return Ok(None);
+        };
+
+        // The AppView truncates getPostThread at ~10 levels no matter the
+        // requested depth, and rolling threads chain far deeper. Keep
+        // re-anchoring at the deepest post by the thread author and collect
+        // the continuation until the chain ends.
+        let mut anchor = deepest_author_post(&body, &room.author_did);
+        let mut hops = 0;
+        while let Some(next_uri) = anchor.take() {
+            if next_uri == uri || hops >= 40 {
+                break;
+            }
+            hops += 1;
+            let Some(chunk) = self.fetch_thread_json(&next_uri).await? else {
+                break;
+            };
+            let Some(node) = chunk.get("thread") else {
+                break;
+            };
+            collect(
+                node,
+                &room.author_did,
+                artist_did,
+                artist_handle,
+                &mut room.entries,
+            );
+            let deeper = deepest_author_post(&chunk, &room.author_did);
+            if deeper.as_deref() == Some(next_uri.as_str()) {
+                break;
+            }
+            anchor = deeper;
+        }
         let room = Arc::new(room);
         self.cache
             .lock()
@@ -305,6 +323,52 @@ impl ThreadFetcher {
             .insert(key, (Instant::now(), room.clone()));
         Ok(Some(room))
     }
+}
+
+impl ThreadFetcher {
+    async fn fetch_thread_json(&self, uri: &str) -> anyhow::Result<Option<serde_json::Value>> {
+        let response = self
+            .client
+            .get(format!("{PUBLIC_API}/xrpc/app.bsky.feed.getPostThread"))
+            .query(&[("uri", uri), ("depth", "1000")])
+            .send()
+            .await?;
+        if response.status() == reqwest::StatusCode::BAD_REQUEST
+            || response.status() == reqwest::StatusCode::NOT_FOUND
+        {
+            return Ok(None);
+        }
+        Ok(Some(
+            response
+                .error_for_status()
+                .context("fetching thread")?
+                .json()
+                .await?,
+        ))
+    }
+}
+
+/// The uri of the deepest post authored by `author_did` in a getPostThread
+/// response — the anchor for walking a truncated rolling thread.
+fn deepest_author_post(response: &serde_json::Value, author_did: &str) -> Option<String> {
+    fn walk(node: &serde_json::Value, author_did: &str, depth: usize) -> Option<(usize, String)> {
+        let post = node.get("post")?;
+        let mut best: Option<(usize, String)> = None;
+        if post.get("author")?.get("did")?.as_str()? == author_did {
+            best = Some((depth, post.get("uri")?.as_str()?.to_string()));
+        }
+        if let Some(replies) = node.get("replies").and_then(|r| r.as_array()) {
+            for reply in replies {
+                if let Some(candidate) = walk(reply, author_did, depth + 1)
+                    && best.as_ref().is_none_or(|b| candidate.0 > b.0)
+                {
+                    best = Some(candidate);
+                }
+            }
+        }
+        best
+    }
+    walk(response.get("thread")?, author_did, 0).map(|(_, uri)| uri)
 }
 
 #[cfg(test)]
