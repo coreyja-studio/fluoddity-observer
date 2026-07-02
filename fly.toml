@@ -14,10 +14,11 @@ primary_region = 'ewr'
 #   PCG_BOT_PASSWORD       — the gallery account's app password
 PCG_MEDIA_MODE = 'cdn'
 PCG_PORT = '4601'
-# Uncomment and fill once the domain + bot account exist:
-# PCG_PUBLIC_URL = 'https://…'
-# PCG_BOT_HANDLE = '…'
-# PCG_ADMIN_DIDS = 'did:plc:bg2gnrjiv6htfynausierbm2=coreyja.com'
+PCG_PUBLIC_URL = 'https://fluoddity.observer'
+PCG_ADMIN_DIDS = 'did:plc:bg2gnrjiv6htfynausierbm2=coreyja.com'
+# Uncomment once the gallery's Bluesky account exists (the handle can be
+# the domain itself via an _atproto TXT record):
+# PCG_BOT_HANDLE = 'fluoddity.observer'
 
 [http_service]
 internal_port = 4601

@@ -1,6 +1,8 @@
 # Fluoddity — a field guide
 
 > A naturalist's field guide to a universe that only exists inside one GPU.
+>
+> **https://fluoddity.observer** — *as observed by Oops! All Paperclips.*
 
 A gallery for the GPU-raytraced particle simulations of
 [Oops! All Paperclips](https://bsky.app/profile/all-paperclips.bsky.social)
