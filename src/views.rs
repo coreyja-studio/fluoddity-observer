@@ -259,6 +259,17 @@ pub fn archive(ctx: &Ctx) -> Markup {
                         "the rooms are curation; this is the record."
                     }
 
+                    @let flat = ctx.catalog.tagged("2d").len();
+                    @let deep = ctx.catalog.tagged("3d").len();
+                    @if flat > 0 && deep > 0 {
+                        p .dimension-filter {
+                            "the record in two dimensions: "
+                            a href="/tag/2d" { "flatland (" (flat) ")" }
+                            " · "
+                            a href="/tag/3d" { "the depths (" (deep) ")" }
+                        }
+                    }
+
                     @for (month, list) in &months {
                         h3 .archive-month { (pretty_month(month)) }
                         div .archive-grid {
@@ -400,7 +411,7 @@ pub fn specimen(
                     @if curator.is_some() {
                         form method="post" action="/admin/tags/add" .inline-form .tag-add {
                             input type="hidden" name="rkey" value=(s.rkey);
-                            input type="text" name="tag" placeholder="add tag" required;
+                            input type="text" name="tag" placeholder="add tags (comma-separated)" required;
                             select name="kind" {
                                 option value="tag" { "tag" }
                                 option value="lineage" { "lineage" }

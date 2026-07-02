@@ -329,8 +329,15 @@ pub async fn add_tag(
     curator: Curator,
     Form(form): Form<TagForm>,
 ) -> Result<Response, AdminError> {
-    let tag = crate::catalog::slugify(&form.tag);
-    if tag.is_empty() {
+    // Comma-separated input adds several tags in one submit
+    // (e.g. "3d, koosh, living metal").
+    let tags: Vec<String> = form
+        .tag
+        .split(',')
+        .map(crate::catalog::slugify)
+        .filter(|t| !t.is_empty())
+        .collect();
+    if tags.is_empty() {
         return Ok((
             axum::http::StatusCode::BAD_REQUEST,
             "A tag needs at least one letter.",
@@ -341,18 +348,20 @@ pub async fn add_tag(
         Some("lineage") => "lineage",
         _ => "tag",
     };
-    sqlx::query!(
-        "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)
-         VALUES ($1, $2, $3, 'curator', $4)
-         ON CONFLICT (rkey, tag) DO UPDATE SET kind = EXCLUDED.kind",
-        form.rkey,
-        tag,
-        kind,
-        curator.did,
-    )
-    .execute(&state.pool)
-    .await?;
-    tracing::info!(curator = %curator.did, rkey = %form.rkey, %tag, kind, "specimen tagged");
+    for tag in &tags {
+        sqlx::query!(
+            "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)
+             VALUES ($1, $2, $3, 'curator', $4)
+             ON CONFLICT (rkey, tag) DO UPDATE SET kind = EXCLUDED.kind",
+            form.rkey,
+            tag,
+            kind,
+            curator.did,
+        )
+        .execute(&state.pool)
+        .await?;
+    }
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, ?tags, kind, "specimen tagged");
     Ok(Redirect::to(&format!("/specimen/{}", form.rkey)).into_response())
 }
 

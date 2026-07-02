@@ -4,6 +4,7 @@ mod bot;
 mod catalog;
 mod cron;
 mod db;
+mod dimensions;
 mod ingest;
 mod jobs;
 mod margin_notes;
@@ -184,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
         Some("refresh-notes") => refresh_notes(pool).await,
+        Some("classify-dimensions") => classify_dimensions(pool).await,
         Some("bot-once") => bot_once(pool).await,
         Some("bot-weekly") => bot_weekly(pool).await,
         Some("gen-oauth-key") => {
@@ -191,7 +193,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `refresh-notes`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -218,6 +220,14 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
         margin_notes = stats.margin_notes,
         "import complete"
     );
+    Ok(())
+}
+
+/// First-pass 2d/3d tagging of untagged specimens (idempotent; never
+/// overrides curator corrections).
+async fn classify_dimensions(pool: PgPool) -> anyhow::Result<()> {
+    let added = dimensions::classify_archive(&pool).await?;
+    tracing::info!(added, "dimension classification complete");
     Ok(())
 }
 
