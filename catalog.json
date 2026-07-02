@@ -1,0 +1,287 @@
+{
+ "artist": {
+  "handle": "all-paperclips.bsky.social",
+  "did": "did:plc:rvkbczphgh3krtnopp2oobty",
+  "name": "Oops! All Paperclips"
+ },
+ "origin": {
+  "handle": "norvid-studies.bsky.social",
+  "text": "sorry to be a pest about this but I really wish there was an oops all paperclips website/curated e-museum with galleries and text boxes, sort like www.vibe-coded.com?tab=projects or mino.mobi ... theres so much good stuff but splashed over twitter it gets lost ...just for the 'consider someday' pile",
+  "url": "https://bsky.app/profile/norvid-studies.bsky.social/post/3mpli4fvzns22"
+ },
+ "rooms": [
+  {
+   "slug": "the-medusae",
+   "title": "The Medusae",
+   "description": "soft bodies, bells, and things that pulse",
+   "rkeys": [
+    "3mnii3o4dcc24",
+    "3mnilf6tunc2i",
+    "3mnt2shpuuk2a",
+    "3mnusuvsuis2v",
+    "3mnyisspv5l2e",
+    "3mne5cj7o4s2t",
+    "3mn75wrzro226",
+    "3mphzduvfwk2c",
+    "3mnejiycqnc23"
+   ]
+  },
+  {
+   "slug": "the-growths",
+   "title": "The Growths",
+   "description": "coral, fungus, orchards — the botanical wing",
+   "rkeys": [
+    "3mn55tr5x322v",
+    "3mnlffimnbk2e",
+    "3mnlyrtkyek23",
+    "3mnupgpmehs2v",
+    "3mnvenkymmc2d",
+    "3mnzyic7cuc2m",
+    "3mphcdfwycs2k",
+    "3mphs5ewbtk2c",
+    "3mooc2voipc2o",
+    "3moon2tiyz22e",
+    "3mnba45tmwk2h",
+    "3mnxwwvchtc26",
+    "3mnxydherok2e",
+    "3mny4h4ssa22e"
+   ]
+  },
+  {
+   "slug": "the-luminous",
+   "title": "The Luminous",
+   "description": "self-lit, back-lit, and blinking in the dark",
+   "rkeys": [
+    "3mnuzeu4q7s2v",
+    "3mnv4p22nl22v",
+    "3mmq2q5ztps2i",
+    "3mnsb7ss3nc2b",
+    "3mnplqrnvx22b",
+    "3mo6rigjsgk2h",
+    "3mo6rigjwdk2h",
+    "3mnvnzqtaok2k",
+    "3mnivcxn4ic2n"
+   ]
+  },
+  {
+   "slug": "the-koosh-and-the-velvet",
+   "title": "The Koosh & the Velvet",
+   "description": "furry, tinsel, needle and nap — textures you want to touch",
+   "rkeys": [
+    "3mojojzkspc2r",
+    "3mony2zhuq22o",
+    "3momotbbzts2y",
+    "3moexsfl6i22r",
+    "3mno6ntv4n22m",
+    "3mnokhnr3v225",
+    "3mnqmgcgig22v",
+    "3moez3hjd222r",
+    "3moqjyj5i7s2d",
+    "3mpiewlje422t",
+    "3mpkb5xucd22g"
+   ]
+  },
+  {
+   "slug": "the-pools",
+   "title": "The Pools",
+   "description": "fluids behaving, fluids misbehaving",
+   "rkeys": [
+    "3mmztz4hres27",
+    "3mobz42ycos2f",
+    "3modungwzsc2n",
+    "3mog7kokzvk2c",
+    "3mo45ws23qs2b",
+    "3mnc55744j22e",
+    "3mnefwimimk23",
+    "3moaat2tv4k2h",
+    "3mpkk3z4ivc2g",
+    "3mpkomtxgzc2g",
+    "3mpksbs2n6c2g",
+    "3mpklpdbjas2g",
+    "3mphqn2vjvs2c",
+    "3mnr4r6pvkk2q"
+   ]
+  },
+  {
+   "slug": "the-deep-finds",
+   "title": "The Deep Finds",
+   "description": "strange discoveries the survey cannot yet classify",
+   "rkeys": [
+    "3mphrfiy5hs2c",
+    "3mpk7k3qldk2g",
+    "3mpi7mi6dq22t",
+    "3mo7t7jenjs2h",
+    "3mnlsouojd227",
+    "3moqe65dzhk2e",
+    "3moo2cdalv22o",
+    "3momokwjd222y",
+    "3mnx6zvm7t22e",
+    "3mmxy6ewbvk2v",
+    "3mpfxxehpg22o"
+   ]
+  }
+ ],
+ "families": [
+  {
+   "slug": "the-cortex-line",
+   "title": "The Cortex Line",
+   "rkeys": [
+    "3mno6ntv4n22m",
+    "3mnokhnr3v225",
+    "3mnqmgcgig22v",
+    "3moez3hjd222r",
+    "3moqjyj5i7s2d"
+   ]
+  },
+  {
+   "slug": "the-ouroboros-tentacle",
+   "title": "The Ouroboros Tentacle",
+   "rkeys": [
+    "3mphrfiy5hs2c",
+    "3mpk7k3qldk2g"
+   ]
+  },
+  {
+   "slug": "luminescence",
+   "title": "Luminescence, Twice Lit",
+   "rkeys": [
+    "3mnuzeu4q7s2v",
+    "3mnv4p22nl22v"
+   ]
+  },
+  {
+   "slug": "growing-apart",
+   "title": "Growing Apart",
+   "rkeys": [
+    "3mnxwwvchtc26",
+    "3mnxydherok2e",
+    "3mny4h4ssa22e"
+   ]
+  },
+  {
+   "slug": "the-splats",
+   "title": "The Splats",
+   "rkeys": [
+    "3mnc55744j22e",
+    "3mnefwimimk23",
+    "3moaat2tv4k2h"
+   ]
+  },
+  {
+   "slug": "the-koosh-family",
+   "title": "The Koosh Family",
+   "rkeys": [
+    "3mojojzkspc2r",
+    "3mony2zhuq22o"
+   ]
+  }
+ ],
+ "margin_notes": {
+  "3mnlffimnbk2e": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "this guy is just a goldmine of jetstream visualization ideas"
+   }
+  ],
+  "3mphcdfwycs2k": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "ANNIHILATION (2018)"
+   }
+  ],
+  "3mmq2q5ztps2i": [
+   {
+    "handle": "zabong69.bsky.social",
+    "text": "What is... this beautiful... madness..."
+   }
+  ],
+  "3mnqmgcgig22v": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "reminded of some of the visuals in the Lacrimosa sequence in Malick's Tree of Life \n\nyoutu.be/m-1q3CgKAPk?..."
+   }
+  ],
+  "3mmztz4hres27": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "penultimate ritual: bsky.app/profile/all-..."
+   },
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "Zhuangzi fish nightmare"
+   }
+  ],
+  "3modungwzsc2n": [
+   {
+    "handle": "ashanti.pds.witchcraft.systems",
+    "text": "The plot of flatland in a nutshell"
+   },
+   {
+    "handle": "isolyth.dev",
+    "text": "this shit is literally autoverse wtf. greg egan would write a novel about this"
+   },
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "wet viscous fluoddity summer bsky.app/profile/all-..."
+   }
+  ],
+  "3mnc55744j22e": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "Oops! All Splats"
+   }
+  ],
+  "3mpkk3z4ivc2g": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "the interior of the Vegas Sphere but it's this"
+   }
+  ],
+  "3mnr4r6pvkk2q": [
+   {
+    "handle": "agnoster.net",
+    "text": "If simulating this is wrong\nI don’t wanna be right"
+   },
+   {
+    "handle": "philpax.me",
+    "text": "the drill that pierces the checkerboard floor"
+   }
+  ],
+  "3mphrfiy5hs2c": [
+   {
+    "handle": "zabong69.bsky.social",
+    "text": "This poster is on fire."
+   },
+   {
+    "handle": "rawx.bsky.social",
+    "text": "Shoggoth found"
+   },
+   {
+    "handle": "bruces.bsky.social",
+    "text": "*Okey-doke"
+   }
+  ],
+  "3mpk7k3qldk2g": [
+   {
+    "handle": "lastnpcalex.agency",
+    "text": "love this aesthetic tbh"
+   }
+  ],
+  "3mnx6zvm7t22e": [
+   {
+    "handle": "kumavis.me",
+    "text": "cloud dragons"
+   }
+  ],
+  "3mpfxxehpg22o": [
+   {
+    "handle": "norvid-studies.bsky.social",
+    "text": "beautiful and also feel like this needs to be fused into the Pleorama Expanded Universe somehow"
+   },
+   {
+    "handle": "sneptech.bsky.social",
+    "text": "autoverse af"
+   }
+  ]
+ }
+}
