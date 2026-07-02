@@ -215,6 +215,9 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                     p .archive-link {
                         a href="/archive" { "browse all " (catalog.archive.len()) " specimens →" }
                     }
+                    p .ambient-link {
+                        a href="/ambient" { "or enter ambient mode — lights off, let the collection play ✦" }
+                    }
                 }
 
                 footer .colophon-link {
@@ -501,6 +504,10 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                 }
 
                 nav .room-nav {
+                    a href=(format!("/ambient?room={}/{}", room.author_handle, room.rkey)) {
+                        "ambient this room ✦"
+                    }
+                    " · "
                     a href="/" { "← back to contents" }
                 }
             }
@@ -562,11 +569,62 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
                 }
 
                 nav .room-nav {
+                    a href=(format!("/ambient?tag={tag}")) { "ambient — let it play ✦" }
+                    " · "
                     a href="/" { "← back to contents" }
                 }
             }
         },
     )
+}
+
+/// One entry in the ambient playlist, serialized for the client.
+#[derive(serde::Serialize)]
+pub struct AmbientEntry {
+    pub src: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hls: Option<String>,
+    pub poster: String,
+    pub label: String,
+}
+
+pub fn ambient_entry(ctx: &Ctx, s: &Specimen) -> AmbientEntry {
+    let (src, hls, poster) = ctx.video_sources(s);
+    AmbientEntry {
+        src,
+        hls,
+        poster,
+        label: s.label(),
+    }
+}
+
+/// The archive as a slow, endless exhibition: full-bleed dark, crossfading
+/// loops, a label that breathes. Esc leaves; space skips.
+pub fn ambient(title: &str, entries: &[AmbientEntry]) -> Markup {
+    let playlist = serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string());
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { (title) " · ambient — Fluoddity" }
+                link rel="stylesheet" href=(FONTS);
+                link rel="stylesheet" href="/static/style.css";
+                script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
+            }
+            body .ambient-body {
+                div #ambient-stage {
+                    video muted playsinline preload="auto" {}
+                    video muted playsinline preload="auto" {}
+                }
+                p #ambient-label {}
+                button #ambient-exit title="leave the exhibition (Esc)" { "✕" }
+                script #ambient-data type="application/json" { (maud::PreEscaped(playlist)) }
+                script src="/static/ambient.js" defer {}
+            }
+        }
+    }
 }
 
 pub fn colophon(ctx: &Ctx) -> Markup {

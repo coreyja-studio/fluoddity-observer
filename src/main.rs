@@ -327,6 +327,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/tag/{tag}", get(tag_page))
+        .route("/ambient", get(ambient))
         .route("/colophon", get(colophon))
         .route("/admin", get(admin::dashboard))
         .route(
@@ -350,6 +351,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/static/style.css", get(stylesheet))
         .route("/static/admin.css", get(admin_css))
         .route("/static/gallery.js", get(gallery_js))
+        .route("/static/ambient.js", get(ambient_js))
         .nest_service("/media", ServeDir::new(media_dir()))
         .with_state(state);
 
@@ -396,6 +398,56 @@ async fn thread_room(
 
 async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
     Ok(views::archive(&state.ctx().await?))
+}
+
+#[derive(serde::Deserialize)]
+struct AmbientParams {
+    /// Filter to one tag/lineage.
+    tag: Option<String>,
+    /// Filter to one thread room: "author/rkey".
+    room: Option<String>,
+}
+
+async fn ambient(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<AmbientParams>,
+) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    let (title, specimens): (String, Vec<&catalog::Specimen>) = if let Some(tag) = &params.tag {
+        (catalog::tag_display(tag), ctx.catalog.tagged(tag))
+    } else if let Some(room_ref) = &params.room {
+        let Some((author, rkey)) = room_ref.split_once('/') else {
+            return Ok(not_found());
+        };
+        let artist = &ctx.catalog.editorial.artist;
+        let Some(room) = state
+            .threads
+            .fetch(author, rkey, &artist.did, &artist.handle)
+            .await?
+        else {
+            return Ok(not_found());
+        };
+        (
+            room.title.clone(),
+            room.entries
+                .iter()
+                .filter_map(|e| ctx.catalog.archive.get(&e.specimen_rkey))
+                .collect(),
+        )
+    } else {
+        (
+            "the whole collection".to_string(),
+            ctx.catalog.archive.all().iter().collect(),
+        )
+    };
+    if specimens.is_empty() {
+        return Ok(not_found());
+    }
+    let entries: Vec<views::AmbientEntry> = specimens
+        .iter()
+        .map(|s| views::ambient_entry(&ctx, s))
+        .collect();
+    Ok(views::ambient(&title, &entries).into_response())
 }
 
 async fn tag_page(
@@ -457,6 +509,13 @@ async fn admin_css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
         include_str!("../static/admin.css"),
+    )
+}
+
+async fn ambient_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../static/ambient.js"),
     )
 }
 
