@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO bot_replies (mention_uri, reply_uri) VALUES ($1, $2)\n             ON CONFLICT (mention_uri) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f9f1c6b1f0b7dda56533d03ef1a56690294a9c13595db00f1ac2123a5a82250a"
+}

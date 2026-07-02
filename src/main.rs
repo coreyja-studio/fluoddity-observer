@@ -1,5 +1,6 @@
 mod admin;
 mod auth;
+mod bot;
 mod catalog;
 mod db;
 mod ingest;
@@ -33,7 +34,7 @@ pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
     pub oauth: auth::AtriumOAuthClient,
-    pub threads: threads::ThreadFetcher,
+    pub threads: StdArc<threads::ThreadFetcher>,
 }
 
 type SharedState = Arc<AppState>;
@@ -161,8 +162,9 @@ async fn main() -> anyhow::Result<()> {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
+        Some("bot-once") => bot_once(pool).await,
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, or `ingest-once`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, or `bot-once`"
         ),
     }
 }
@@ -189,6 +191,19 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
         margin_notes = stats.margin_notes,
         "import complete"
     );
+    Ok(())
+}
+
+/// One manual bot poll — answer pending mentions and exit.
+async fn bot_once(pool: PgPool) -> anyhow::Result<()> {
+    let cfg = bot::BotConfig::from_env()
+        .ok_or_else(|| anyhow::anyhow!("PCG_BOT_HANDLE and PCG_BOT_PASSWORD must be set"))?;
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery-bot/0.1 (fluoddity field guide)")
+        .build()?;
+    let threads = threads::ThreadFetcher::new(client.clone());
+    let replied = bot::poll_once(&pool, &client, &threads, &cfg).await?;
+    tracing::info!(replied, "bot-once complete");
     Ok(())
 }
 
@@ -235,8 +250,15 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         pool,
         media_mode,
         oauth,
-        threads: threads::ThreadFetcher::new(http),
+        threads: StdArc::new(threads::ThreadFetcher::new(http)),
     });
+
+    // The gallery's Bluesky presence: answer mentions with room links.
+    // Enabled when PCG_BOT_HANDLE + PCG_BOT_PASSWORD are set.
+    if let Some(bot_cfg) = bot::BotConfig::from_env() {
+        tracing::info!(handle = %bot_cfg.handle, "starting gallery bot");
+        tokio::spawn(bot::run(state.pool.clone(), state.threads.clone(), bot_cfg));
+    }
 
     let app = Router::new()
         .route("/", get(index))

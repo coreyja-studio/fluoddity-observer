@@ -81,6 +81,18 @@ specimen pages and at `/tag/{tag}`. Tag sources:
   (at import and on live ingest), so oops can tag from inside Bluesky
 - **community** — reserved for a community-notes-style flow later
 
+## The gallery bot
+
+With `PCG_BOT_HANDLE` + `PCG_BOT_PASSWORD` (an app password) set, the gallery
+runs a Bluesky presence: **mention the account anywhere in a thread** and it
+replies with that thread's live room link. The bot polls its own
+notifications (every `PCG_BOT_POLL_SECS`, default 60) — chosen over Jetstream
+because notifications deliver exactly our mentions and queue across downtime,
+where Jetstream would mean filtering the whole network's post stream
+client-side. `bot_replies` ledger guarantees one answer per mention;
+`bot-once` runs a single poll manually. Set `PCG_PUBLIC_URL` so links point
+at the hosted site.
+
 ## The curator's desk (admin)
 
 `/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in
