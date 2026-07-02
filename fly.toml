@@ -1,0 +1,36 @@
+# Fly.io configuration for the Fluoddity field guide.
+# See https://fly.io/docs/reference/configuration/
+
+app = 'paperclips-gallery'
+primary_region = 'ewr'
+
+[build]
+
+[env]
+# Hosted mode streams everything from the Bluesky video CDN — no media
+# volume needed. Secrets (set via `flyctl secrets set`):
+#   DATABASE_URL           — hosted Postgres (Neon)
+#   PCG_OAUTH_PRIVATE_KEY  — from `paperclips-gallery gen-oauth-key`
+#   PCG_BOT_PASSWORD       — the gallery account's app password
+PCG_MEDIA_MODE = 'cdn'
+PCG_PORT = '4601'
+PCG_PUBLIC_URL = 'https://fluoddity.observer'
+PCG_ADMIN_DIDS = 'did:plc:bg2gnrjiv6htfynausierbm2=coreyja.com'
+# Uncomment once the gallery's Bluesky account exists (the handle can be
+# the domain itself via an _atproto TXT record):
+# PCG_BOT_HANDLE = 'fluoddity.observer'
+
+[http_service]
+internal_port = 4601
+force_https = true
+# The ingest poller and gallery bot live in-process — the machine must not
+# scale to zero.
+auto_stop_machines = 'off'
+auto_start_machines = true
+min_machines_running = 1
+processes = ['app']
+
+[[vm]]
+memory = '512mb'
+cpu_kind = 'shared'
+cpus = 1

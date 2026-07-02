@@ -5,11 +5,29 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
+atrium-api = "0.25"
+atrium-common = "0.1"
+atrium-identity = "0.1"
+atrium-oauth = { version = "0.1", default-features = false }
+atrium-xrpc = "0.12"
 axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+cja = { git = "https://github.com/coreyja/cja", branch = "main" }
+elliptic-curve = { version = "0.13", features = ["jwk", "pem", "std"] }
+jose-jwk = "0.1"
 maud = { version = "0.27", features = ["axum"] }
+p256 = { version = "0.13", features = ["pem", "jwk"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "migrate", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

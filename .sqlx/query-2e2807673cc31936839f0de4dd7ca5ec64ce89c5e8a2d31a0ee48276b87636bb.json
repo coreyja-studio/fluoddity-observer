@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rkey FROM specimens ORDER BY collected_on, rkey",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rkey",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2e2807673cc31936839f0de4dd7ca5ec64ce89c5e8a2d31a0ee48276b87636bb"
+}

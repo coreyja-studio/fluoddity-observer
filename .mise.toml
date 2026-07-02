@@ -1,0 +1,3 @@
+[env]
+DATABASE_URL = "postgresql:///paperclips_gallery?host=/var/run/postgresql"
+PCG_ADMIN_DIDS = "did:plc:bg2gnrjiv6htfynausierbm2=coreyja.com"

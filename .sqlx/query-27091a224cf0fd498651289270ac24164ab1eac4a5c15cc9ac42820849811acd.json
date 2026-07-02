@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO curators (did, handle, role) VALUES ($1, $2, 'artist')\n             ON CONFLICT (did) DO UPDATE SET role = 'artist', handle = EXCLUDED.handle",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "27091a224cf0fd498651289270ac24164ab1eac4a5c15cc9ac42820849811acd"
+}

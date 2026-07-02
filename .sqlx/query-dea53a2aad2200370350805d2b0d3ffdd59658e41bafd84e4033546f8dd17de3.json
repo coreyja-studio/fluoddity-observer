@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM margin_notes",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "dea53a2aad2200370350805d2b0d3ffdd59658e41bafd84e4033546f8dd17de3"
+}

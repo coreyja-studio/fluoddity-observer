@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO thread_rooms (author_did, rkey, author_handle, title, added_by)\n         VALUES ($1, $2, $3, $4, $5)\n         ON CONFLICT (author_did, rkey)\n         DO UPDATE SET author_handle = EXCLUDED.author_handle, title = EXCLUDED.title",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "747ff19d09dacf20889a8cf7c342d3cb5a7e64a767bb134e79ca402eb63faeaa"
+}

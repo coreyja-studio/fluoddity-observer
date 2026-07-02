@@ -1,29 +1,75 @@
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{
-    SharedState,
-    catalog::{Family, Room, Specimen, pretty_date, pretty_month, roman},
+    Ctx, HungRoom,
+    auth::Curator,
+    catalog::{Specimen, pretty_date, pretty_month, roman, tag_display},
+    threads::ThreadRoom,
 };
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Caveat:wght@400;600&display=swap";
 
-fn base(state: &SharedState, title: &str, body: Markup) -> Markup {
-    let cdn_mode = state.media_mode == crate::MediaMode::Cdn;
+/// Per-page metadata for the head: title, description, and the OpenGraph
+/// card that unfurls when a page is shared (on Bluesky, most importantly).
+pub struct PageMeta {
+    pub title: String,
+    pub description: String,
+    /// Absolute image URL — CDN thumbnails work in every media mode.
+    pub image: Option<String>,
+    /// Site-relative path, joined with PCG_PUBLIC_URL for og:url.
+    pub path: String,
+}
+
+const DEFAULT_DESCRIPTION: &str = "A field guide to Fluoddity — a universe that only exists inside one GPU. As observed by Oops! All Paperclips.";
+
+impl PageMeta {
+    fn new(title: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: DEFAULT_DESCRIPTION.to_string(),
+            image: None,
+            path: path.into(),
+        }
+    }
+}
+
+/// Absolute thumbnail for a specimen, for OG cards.
+fn og_thumb(ctx: &Ctx, s: &Specimen) -> String {
+    format!(
+        "https://video.bsky.app/watch/{}/{}/thumbnail.jpg",
+        ctx.catalog.editorial.artist.did, s.cid
+    )
+}
+
+fn base(meta: PageMeta, body: Markup) -> Markup {
+    let og_url = format!("{}{}", crate::bot::public_url(), meta.path);
     html! {
         (DOCTYPE)
         html lang="en" {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { (title) }
-                meta name="description" content="A field guide to Fluoddity — a universe that only exists inside one GPU. As observed by Oops! All Paperclips.";
+                title { (meta.title) }
+                meta name="description" content=(meta.description);
+                meta property="og:site_name" content="Fluoddity — a field guide";
+                meta property="og:type" content="website";
+                meta property="og:title" content=(meta.title);
+                meta property="og:description" content=(meta.description);
+                meta property="og:url" content=(og_url);
+                @if let Some(image) = &meta.image {
+                    meta property="og:image" content=(image);
+                    meta name="twitter:card" content="summary_large_image";
+                    meta name="twitter:image" content=(image);
+                }
+                meta name="twitter:title" content=(meta.title);
+                meta name="twitter:description" content=(meta.description);
                 link rel="preconnect" href="https://fonts.googleapis.com";
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href=(FONTS);
                 link rel="stylesheet" href="/static/style.css";
-                @if cdn_mode {
-                    script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
-                }
+                // Freshly ingested specimens stream from the Bluesky CDN via
+                // HLS even in local media mode, so hls.js is always on hand.
+                script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
             }
             body {
                 (body)
@@ -38,8 +84,8 @@ fn base(state: &SharedState, title: &str, body: Markup) -> Markup {
 }
 
 /// A looping specimen video. Clicking it opens the full-bleed behold view.
-fn specimen_video(state: &SharedState, s: &Specimen) -> Markup {
-    let (src, hls, poster) = state.video_sources(s);
+fn specimen_video(ctx: &Ctx, s: &Specimen) -> Markup {
+    let (src, hls, poster) = ctx.video_sources(s);
     html! {
         video .specimen-video
             src=(src)
@@ -51,8 +97,8 @@ fn specimen_video(state: &SharedState, s: &Specimen) -> Markup {
     }
 }
 
-fn page_header(state: &SharedState, plate: &str) -> Markup {
-    let artist = &state.catalog.editorial.artist;
+fn page_header(ctx: &Ctx, plate: &str) -> Markup {
+    let artist = &ctx.catalog.editorial.artist;
     html! {
         header .masthead {
             p .plate-no { (plate) }
@@ -67,15 +113,16 @@ fn page_header(state: &SharedState, plate: &str) -> Markup {
     }
 }
 
-pub fn index(state: &SharedState) -> Markup {
-    let catalog = &state.catalog;
+pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
+    let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
+    let mut meta = PageMeta::new("Fluoddity — a field guide", "/");
+    meta.image = catalog.archive.all().last().map(|s| og_thumb(ctx, s));
     base(
-        state,
-        "Fluoddity — a field guide",
+        meta,
         html! {
             main .sheet {
-                (page_header(state, "Frontispiece"))
+                (page_header(ctx, "Frontispiece"))
 
                 blockquote .origin-note {
                     p { "“" (editorial.origin.text) "”" }
@@ -88,37 +135,63 @@ pub fn index(state: &SharedState) -> Markup {
                 section .contents {
                     h2 .room-label { "Contents · The Rooms" }
                     p .room-sublabel {
-                        "arranged by vibe, not by date — a provisional taxonomy, pending the artist's own"
+                        "every room is one of the artist's own Bluesky threads, rendered live — "
+                        "when a thread grows, its room grows with it"
                     }
-                    @for (i, room) in editorial.rooms.iter().enumerate() {
-                        a .contents-row href=(format!("/room/{}", room.slug)) {
+                    @let artist_rooms: Vec<&HungRoom> = rooms.iter().filter(|h| h.is_by(&editorial.artist.did)).collect();
+                    @if artist_rooms.is_empty() {
+                        p .room-sublabel { "no rooms hung yet — the archive below holds everything meanwhile" }
+                    }
+                    @for (i, hung) in artist_rooms.iter().enumerate() {
+                        a .contents-row href=(format!("/room/{}/{}", hung.row.author_handle, hung.row.rkey)) {
                             div .contents-thumbs {
-                                @for s in catalog.room_specimens(room).take(3) {
-                                    img src=(state.video_sources(s).2) alt="" loading="lazy";
+                                @for s in hung.room.entries.iter().filter_map(|e| catalog.archive.get(&e.specimen_rkey)).take(3) {
+                                    img src=(ctx.video_sources(s).2) alt="" loading="lazy";
                                 }
                             }
                             div .contents-text {
-                                h3 { span .roman { "Plate " (roman(i + 1)) } " — " (room.title) }
-                                p { (room.description) }
-                                p .count { (room.rkeys.len()) " specimens" }
+                                h3 { span .roman { "Plate " (roman(i + 1)) } " — " (hung.room.title) }
+                                p .count { (hung.room.entries.len()) " specimens" }
                             }
                         }
                     }
                 }
 
-                section .lineages {
-                    h2 .room-label { "The Lineages" }
-                    p .room-sublabel {
-                        "a specimen is often a family — forms mutate across days, and the guide keeps the descendants together"
-                    }
-                    ul .lineage-list {
-                        @for family in &editorial.families {
-                            @if let Some(first) = family.rkeys.first().and_then(|k| catalog.archive.get(k)) {
+                @let lineages = catalog.lineage_tags();
+                @if !lineages.is_empty() {
+                    section .lineages {
+                        h2 .room-label { "The Lineages" }
+                        p .room-sublabel {
+                            "a specimen is often a family — forms mutate across days, and the guide keeps the descendants together"
+                        }
+                        ul .lineage-list {
+                            @for (tag, count) in &lineages {
                                 li {
-                                    a href=(format!("/specimen/{}", first.rkey)) {
-                                        (family.title)
-                                        span .count { " · " (family.rkeys.len()) " forms" }
+                                    a href=(format!("/tag/{tag}")) {
+                                        (tag_display(tag))
+                                        span .count { " · " (count) " forms" }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                @let guest_rooms: Vec<&HungRoom> = rooms.iter().filter(|h| !h.is_by(&editorial.artist.did)).collect();
+                @if !guest_rooms.is_empty() {
+                    section .guest-rooms {
+                        h2 .room-label { "Guest Rooms" }
+                        p .room-sublabel {
+                            "rooms curated by others — post a thread quoting the artist's work "
+                            "and it can hang here"
+                        }
+                        ul .lineage-list {
+                            @for hung in &guest_rooms {
+                                li {
+                                    a href=(format!("/room/{}/{}", hung.row.author_handle, hung.row.rkey)) {
+                                        (hung.room.title)
+                                    }
+                                    span .count { " · hung by @" (hung.row.author_handle) }
                                 }
                             }
                         }
@@ -131,8 +204,19 @@ pub fn index(state: &SharedState) -> Markup {
                         "the complete expedition record — every specimen has a permanent page here, "
                         "whether or not the survey has hung it in a room"
                     }
+                    div .latest-strip {
+                        @for s in catalog.archive.all().iter().rev().take(6) {
+                            a .latest-item href=(format!("/specimen/{}", s.rkey)) title=(s.label()) {
+                                img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
+                            }
+                        }
+                    }
+                    p .latest-caption { "the six most recent sightings" }
                     p .archive-link {
                         a href="/archive" { "browse all " (catalog.archive.len()) " specimens →" }
+                    }
+                    p .ambient-link {
+                        a href="/ambient" { "or enter ambient mode — lights off, let the collection play ✦" }
                     }
                 }
 
@@ -144,58 +228,8 @@ pub fn index(state: &SharedState) -> Markup {
     )
 }
 
-pub fn room(state: &SharedState, room: &Room) -> Markup {
-    let plate_index = state
-        .catalog
-        .editorial
-        .rooms
-        .iter()
-        .position(|r| r.slug == room.slug)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    base(
-        state,
-        &format!("{} — Fluoddity", room.title),
-        html! {
-            main .sheet {
-                (page_header(state, &format!("Plate {}", roman(plate_index))))
-
-                section {
-                    h2 .room-label { (room.title) }
-                    p .room-sublabel { (room.description) " — as noted by the artist" }
-
-                    div .plate-grid {
-                        @for (i, s) in state.catalog.room_specimens(room).enumerate() {
-                            figure .specimen {
-                                (specimen_video(state, s))
-                                figcaption {
-                                    p .fig-no { "Fig. " (i + 1) }
-                                    p .fig-name {
-                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
-                                    }
-                                    p .fig-date { "collected " (pretty_date(&s.date)) }
-                                    @if !state.catalog.notes_of(&s.rkey).is_empty()
-                                        || !state.catalog.families_of(&s.rkey).is_empty() {
-                                        p .fig-more {
-                                            a href=(format!("/specimen/{}", s.rkey)) { "field notes →" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                nav .room-nav {
-                    a href="/" { "← back to contents" }
-                }
-            }
-        },
-    )
-}
-
-pub fn archive(state: &SharedState) -> Markup {
-    let specimens = state.catalog.archive.all();
+pub fn archive(ctx: &Ctx) -> Markup {
+    let specimens = ctx.catalog.archive.all();
     // Group chronologically by month for ledger headings.
     let mut months: Vec<(String, Vec<&Specimen>)> = Vec::new();
     for s in specimens {
@@ -205,12 +239,17 @@ pub fn archive(state: &SharedState) -> Markup {
             _ => months.push((month, vec![s])),
         }
     }
+    let mut meta = PageMeta::new("The Archive — Fluoddity", "/archive");
+    meta.description = format!(
+        "The complete expedition record — {} specimens, chronological, every one with a permanent page.",
+        specimens.len()
+    );
+    meta.image = specimens.last().map(|s| og_thumb(ctx, s));
     base(
-        state,
-        "The Archive — Fluoddity",
+        meta,
         html! {
             main .sheet {
-                (page_header(state, "The Archive"))
+                (page_header(ctx, "The Archive"))
 
                 section {
                     h2 .room-label { "The Complete Expedition Record" }
@@ -220,12 +259,23 @@ pub fn archive(state: &SharedState) -> Markup {
                         "the rooms are curation; this is the record."
                     }
 
+                    @let flat = ctx.catalog.tagged("2d").len();
+                    @let deep = ctx.catalog.tagged("3d").len();
+                    @if flat > 0 && deep > 0 {
+                        p .dimension-filter {
+                            "the record in two dimensions: "
+                            a href="/tag/2d" { "flatland (" (flat) ")" }
+                            " · "
+                            a href="/tag/3d" { "the depths (" (deep) ")" }
+                        }
+                    }
+
                     @for (month, list) in &months {
                         h3 .archive-month { (pretty_month(month)) }
                         div .archive-grid {
                             @for s in list {
                                 a .archive-item href=(format!("/specimen/{}", s.rkey)) {
-                                    img src=(state.video_sources(s).2) alt=(s.label()) loading="lazy";
+                                    img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
                                     span .archive-label { (s.label()) }
                                     span .archive-date { (pretty_date(&s.date)) }
                                 }
@@ -242,20 +292,21 @@ pub fn archive(state: &SharedState) -> Markup {
     )
 }
 
-fn family_strip(state: &SharedState, family: &Family, current_rkey: &str) -> Markup {
+fn lineage_strip(ctx: &Ctx, tag: &str, current_rkey: &str) -> Markup {
+    let members = ctx.catalog.tagged(tag);
     html! {
         section .family {
-            h3 .family-title { "Lineage · " (family.title) }
+            h3 .family-title {
+                "Lineage · " a href=(format!("/tag/{tag}")) { (tag_display(tag)) }
+            }
             div .family-strip {
-                @for (i, rkey) in family.rkeys.iter().enumerate() {
-                    @if let Some(member) = state.catalog.archive.get(rkey) {
-                        @if i > 0 { span .family-arrow aria-hidden="true" { "⟿" } }
-                        a .family-member
-                            .current[member.rkey == current_rkey]
-                            href=(format!("/specimen/{}", member.rkey)) {
-                            img src=(state.video_sources(member).2) alt=(member.label()) loading="lazy";
-                            span { (pretty_date(&member.date)) }
-                        }
+                @for (i, member) in members.iter().enumerate() {
+                    @if i > 0 { span .family-arrow aria-hidden="true" { "⟿" } }
+                    a .family-member
+                        .current[member.rkey == current_rkey]
+                        href=(format!("/specimen/{}", member.rkey)) {
+                        img src=(ctx.video_sources(member).2) alt=(member.label()) loading="lazy";
+                        span { (pretty_date(&member.date)) }
                     }
                 }
             }
@@ -263,19 +314,37 @@ fn family_strip(state: &SharedState, family: &Family, current_rkey: &str) -> Mar
     }
 }
 
-pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Markup {
-    let families = state.catalog.families_of(&s.rkey);
-    let notes = state.catalog.notes_of(&s.rkey);
-    let plate = room.map(|r| r.title.as_str()).unwrap_or("The Archive");
+pub fn specimen(
+    ctx: &Ctx,
+    hung_in: &[&HungRoom],
+    s: &Specimen,
+    curator: Option<&Curator>,
+) -> Markup {
+    let tags = ctx.catalog.tags_of(&s.rkey);
+    let notes = ctx.catalog.notes_of(&s.rkey);
+    let artist_did = ctx.catalog.editorial.artist.did.clone();
+    let plate = hung_in
+        .first()
+        .map(|h| h.room.title.as_str())
+        .unwrap_or("The Archive");
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", s.label()),
+        format!("/specimen/{}", s.rkey),
+    );
+    meta.description = format!(
+        "“{}” — collected {}. From the Fluoddity expedition record.",
+        crate::catalog::ellipsize(&s.caption.replace('\n', " "), 180),
+        pretty_date(&s.date),
+    );
+    meta.image = Some(og_thumb(ctx, s));
     base(
-        state,
-        &format!("{} — Fluoddity", s.label()),
+        meta,
         html! {
             main .sheet .specimen-sheet {
-                (page_header(state, plate))
+                (page_header(ctx, plate))
 
                 figure .specimen .specimen-solo {
-                    (specimen_video(state, s))
+                    (specimen_video(ctx, s))
                     figcaption {
                         p .fig-name-big { (s.label()) }
                         p .fig-date { "collected " (pretty_date(&s.date)) }
@@ -290,10 +359,17 @@ pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Marku
                 }
 
                 div .wall-label {
-                    @if room.is_some() {
-                        p .provenance { "selected by the field survey, vol. i" }
-                    } @else {
+                    @if hung_in.is_empty() {
                         p .provenance { "from the expedition record — not yet hung in a room" }
+                    } @else {
+                        @for h in hung_in {
+                            p .provenance {
+                                "hung in "
+                                a href=(format!("/room/{}/{}", h.row.author_handle, h.row.rkey)) { (h.room.title) }
+                                @if h.is_by(&artist_did) { " by the artist" }
+                                @else { " by @" (h.row.author_handle) }
+                            }
+                        }
                     }
                     p .source-link {
                         a href=(s.url) { "the original sighting, on Bluesky →" }
@@ -312,13 +388,44 @@ pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Marku
                     }
                 }
 
-                @for family in &families {
-                    (family_strip(state, family, &s.rkey))
+                @for tag in tags.iter().filter(|t| t.kind == "lineage") {
+                    (lineage_strip(ctx, &tag.tag, &s.rkey))
+                }
+
+                div .tag-row {
+                    @for tag in tags {
+                        span .tag-chip {
+                            a href=(format!("/tag/{}", tag.tag)) {
+                                @if tag.kind == "lineage" { "⟿ " }
+                                (tag_display(&tag.tag))
+                            }
+                            @if curator.is_some() {
+                                form method="post" action="/admin/tags/remove" .inline-form {
+                                    input type="hidden" name="rkey" value=(s.rkey);
+                                    input type="hidden" name="tag" value=(tag.tag);
+                                    button type="submit" .link-button title="remove tag" { "✕" }
+                                }
+                            }
+                        }
+                    }
+                    @if curator.is_some() {
+                        form method="post" action="/admin/tags/add" .inline-form .tag-add {
+                            input type="hidden" name="rkey" value=(s.rkey);
+                            input type="text" name="tag" placeholder="add tags (comma-separated)" required;
+                            select name="kind" {
+                                option value="tag" { "tag" }
+                                option value="lineage" { "lineage" }
+                            }
+                            button type="submit" { "tag it" }
+                        }
+                    }
                 }
 
                 nav .room-nav {
-                    @if let Some(room) = room {
-                        a href=(format!("/room/{}", room.slug)) { "← back to " (room.title) }
+                    @if let Some(h) = hung_in.first() {
+                        a href=(format!("/room/{}/{}", h.row.author_handle, h.row.rkey)) {
+                            "← back to " (h.room.title)
+                        }
                     } @else {
                         a href="/archive" { "← back to the archive" }
                     }
@@ -328,14 +435,216 @@ pub fn specimen(state: &SharedState, room: Option<&Room>, s: &Specimen) -> Marku
     )
 }
 
-pub fn colophon(state: &SharedState) -> Markup {
-    let editorial = &state.catalog.editorial;
+pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup {
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", room.title),
+        format!("/room/{}/{}", room.author_handle, room.rkey),
+    );
+    meta.description = format!(
+        "A room curated by {} — {} specimens, rendered live from their Bluesky thread.",
+        room.author_display,
+        room.entries.len(),
+    );
+    meta.image = room
+        .entries
+        .iter()
+        .find_map(|e| ctx.catalog.archive.get(&e.specimen_rkey))
+        .map(|s| og_thumb(ctx, s));
     base(
-        state,
-        "Colophon — Fluoddity",
+        meta,
+        html! {
+            main .sheet {
+                @let plate_label = match plate {
+                    Some(n) => format!("Plate {}", roman(n)),
+                    None => "Guest Room".to_string(),
+                };
+                (page_header(ctx, &plate_label))
+
+                section {
+                    h2 .room-label { (room.title) }
+                    p .room-sublabel {
+                        "a room curated by "
+                        a href=(format!("https://bsky.app/profile/{}", room.author_handle)) {
+                            (room.author_display)
+                        }
+                        " — it renders live from "
+                        a href=(room.thread_url()) { "their thread" }
+                        "; when the thread grows, so does the room"
+                    }
+
+                    @if !room.intro.trim().is_empty() {
+                        blockquote .origin-note {
+                            p { "“" (room.intro) "”" }
+                            footer { "— @" (room.author_handle) ", at the door" }
+                        }
+                    }
+
+                    div .plate-grid {
+                        @for (i, entry) in room
+                            .entries
+                            .iter()
+                            .filter_map(|e| ctx.catalog.archive.get(&e.specimen_rkey).map(|s| (e, s)))
+                            .enumerate()
+                        {
+                            @let (entry, s) = entry;
+                            figure .specimen {
+                                (specimen_video(ctx, s))
+                                figcaption {
+                                    p .fig-no { "Fig. " (i + 1) }
+                                    p .fig-name {
+                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                    }
+                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    @if entry.note.trim() != s.caption.trim() && !entry.note.trim().is_empty() {
+                                        p .curator-note {
+                                            "“" (entry.note) "”"
+                                            span .margin-handle { " — @" (room.author_handle) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    @if room.entries.iter().all(|e| ctx.catalog.archive.get(&e.specimen_rkey).is_none()) {
+                        p .room-sublabel {
+                            "This thread doesn't reference any of the artist's specimens yet. "
+                            "Quote-post or link his work in the thread and it will hang here."
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href=(format!("/ambient?room={}/{}", room.author_handle, room.rkey)) {
+                        "ambient this room ✦"
+                    }
+                    " · "
+                    a href="/" { "← back to contents" }
+                }
+            }
+        },
+    )
+}
+
+pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
+    let members = ctx.catalog.tagged(tag);
+    let heading = if kind == "lineage" {
+        format!("Lineage · {}", tag_display(tag))
+    } else {
+        format!("Tagged · {}", tag_display(tag))
+    };
+    let mut meta = PageMeta::new(
+        format!("{} — Fluoddity", tag_display(tag)),
+        format!("/tag/{tag}"),
+    );
+    meta.description = if kind == "lineage" {
+        format!(
+            "Lineage · {} — {} forms, oldest first. Watch it evolve.",
+            tag_display(tag),
+            members.len()
+        )
+    } else {
+        format!("{} specimens tagged “{}”.", members.len(), tag_display(tag))
+    };
+    meta.image = members.first().map(|s| og_thumb(ctx, s));
+    base(
+        meta,
+        html! {
+            main .sheet {
+                (page_header(ctx, &heading))
+
+                section {
+                    h2 .room-label { (tag_display(tag)) }
+                    p .room-sublabel {
+                        @if kind == "lineage" {
+                            (members.len()) " forms, oldest first — watch it evolve"
+                        } @else {
+                            (members.len()) " specimens carry this tag"
+                        }
+                    }
+
+                    div .plate-grid {
+                        @for (i, s) in members.iter().enumerate() {
+                            figure .specimen {
+                                (specimen_video(ctx, s))
+                                figcaption {
+                                    p .fig-no { "Fig. " (i + 1) }
+                                    p .fig-name {
+                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                    }
+                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href=(format!("/ambient?tag={tag}")) { "ambient — let it play ✦" }
+                    " · "
+                    a href="/" { "← back to contents" }
+                }
+            }
+        },
+    )
+}
+
+/// One entry in the ambient playlist, serialized for the client.
+#[derive(serde::Serialize)]
+pub struct AmbientEntry {
+    pub src: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hls: Option<String>,
+    pub poster: String,
+    pub label: String,
+}
+
+pub fn ambient_entry(ctx: &Ctx, s: &Specimen) -> AmbientEntry {
+    let (src, hls, poster) = ctx.video_sources(s);
+    AmbientEntry {
+        src,
+        hls,
+        poster,
+        label: s.label(),
+    }
+}
+
+/// The archive as a slow, endless exhibition: full-bleed dark, crossfading
+/// loops, a label that breathes. Esc leaves; space skips.
+pub fn ambient(title: &str, entries: &[AmbientEntry]) -> Markup {
+    let playlist = serde_json::to_string(entries).unwrap_or_else(|_| "[]".to_string());
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { (title) " · ambient — Fluoddity" }
+                link rel="stylesheet" href=(FONTS);
+                link rel="stylesheet" href="/static/style.css";
+                script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" defer {}
+            }
+            body .ambient-body {
+                div #ambient-stage {
+                    video muted playsinline preload="auto" {}
+                    video muted playsinline preload="auto" {}
+                }
+                p #ambient-label {}
+                button #ambient-exit title="leave the exhibition (Esc)" { "✕" }
+                script #ambient-data type="application/json" { (maud::PreEscaped(playlist)) }
+                script src="/static/ambient.js" defer {}
+            }
+        }
+    }
+}
+
+pub fn colophon(ctx: &Ctx) -> Markup {
+    let editorial = &ctx.catalog.editorial;
+    base(
+        PageMeta::new("Colophon — Fluoddity", "/colophon"),
         html! {
             main .sheet .colophon {
-                (page_header(state, "Colophon"))
+                (page_header(ctx, "Colophon"))
 
                 section .prose {
                     h2 .room-label { "Why this guide exists" }

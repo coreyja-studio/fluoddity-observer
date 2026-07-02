@@ -1,0 +1,25 @@
+name: Clippy
+
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Compile sqlx macros from the committed .sqlx cache — no database needed.
+  SQLX_OFFLINE: 1
+
+jobs:
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings

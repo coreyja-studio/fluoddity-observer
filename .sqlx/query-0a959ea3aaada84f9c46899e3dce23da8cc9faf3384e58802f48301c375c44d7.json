@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)\n             VALUES ($1, $2, $3, 'curator', $4)\n             ON CONFLICT (rkey, tag) DO UPDATE SET kind = EXCLUDED.kind",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a959ea3aaada84f9c46899e3dce23da8cc9faf3384e58802f48301c375c44d7"
+}

@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 
-use anyhow::Context;
 use serde::Deserialize;
 
 /// The full expedition record: every video specimen from the artist's
-/// archive (`metadata.jsonl`), chronological. Source of truth for specimen
-/// data — every entry gets a durable page whether curated or not.
+/// archive, chronological. Source of truth for specimen data — every entry
+/// gets a durable page whether curated or not.
 #[derive(Debug)]
 pub struct Archive {
     specimens: Vec<Specimen>,
     by_rkey: HashMap<String, usize>,
 }
 
-/// The editorial layer (`catalog.json`): rooms, lineage families, and margin
-/// notes, all referencing archive specimens by rkey.
-#[derive(Debug, Deserialize)]
+/// The editorial layer: rooms, lineage families, and margin notes, all
+/// referencing archive specimens by rkey.
+#[derive(Debug)]
 pub struct Editorial {
     pub artist: Artist,
     pub origin: Origin,
-    pub rooms: Vec<Room>,
-    pub families: Vec<Family>,
-    #[serde(default)]
+    /// Tags per specimen rkey; kind 'lineage' gets evolution-strip treatment.
+    pub tags: HashMap<String, Vec<Tag>>,
     pub margin_notes: HashMap<String, Vec<MarginNote>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub tag: String,
+    pub kind: String,
+    pub source: String,
 }
 
 #[derive(Debug)]
@@ -37,20 +42,16 @@ pub struct Artist {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct Room {
-    pub slug: String,
-    pub title: String,
-    pub description: String,
-    pub rkeys: Vec<String>,
-}
-
 #[derive(Debug, Clone)]
 pub struct Specimen {
     pub rkey: String,
     pub cid: String,
-    pub file: String,
+    /// Path relative to the media dir; `None` when the blob hasn't been
+    /// pulled locally — such specimens are served from the Bluesky CDN even
+    /// in local media mode.
+    pub file: Option<String>,
     pub caption: String,
+    /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
     pub url: String,
 }
@@ -61,13 +62,6 @@ pub struct MarginNote {
     pub text: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct Family {
-    pub slug: String,
-    pub title: String,
-    pub rkeys: Vec<String>,
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct Origin {
     pub handle: String,
@@ -75,46 +69,15 @@ pub struct Origin {
     pub url: String,
 }
 
-/// One row of the archive's metadata.jsonl.
-#[derive(Debug, Deserialize)]
-struct MetadataRow {
-    file: String,
-    kind: String,
-    cid: String,
-    rkey: String,
-    caption: String,
-    #[serde(rename = "createdAt")]
-    created_at: String,
-    url: String,
-}
-
 impl Archive {
-    pub fn load(path: &str) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading archive metadata from {path}"))?;
-        let mut specimens: Vec<Specimen> = raw
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str::<MetadataRow>(l).context("parsing metadata.jsonl row"))
-            .collect::<anyhow::Result<Vec<_>>>()?
-            .into_iter()
-            .filter(|row| row.kind == "video")
-            .map(|row| Specimen {
-                rkey: row.rkey,
-                cid: row.cid,
-                file: row.file,
-                caption: row.caption,
-                date: row.created_at.chars().take(10).collect(),
-                url: row.url,
-            })
-            .collect();
+    pub fn new(mut specimens: Vec<Specimen>) -> Self {
         specimens.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.rkey.cmp(&b.rkey)));
         let by_rkey = specimens
             .iter()
             .enumerate()
             .map(|(i, s)| (s.rkey.clone(), i))
             .collect();
-        Ok(Self { specimens, by_rkey })
+        Self { specimens, by_rkey }
     }
 
     pub fn get(&self, rkey: &str) -> Option<&Specimen> {
@@ -128,49 +91,54 @@ impl Archive {
     pub fn len(&self) -> usize {
         self.specimens.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.specimens.is_empty()
+    }
 }
 
 impl Catalog {
-    pub fn load(catalog_path: &str, metadata_path: &str) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(catalog_path)
-            .with_context(|| format!("reading catalog from {catalog_path}"))?;
-        let editorial: Editorial = serde_json::from_str(&raw).context("parsing catalog.json")?;
-        let archive = Archive::load(metadata_path)?;
-        for room in &editorial.rooms {
-            for rkey in &room.rkeys {
-                anyhow::ensure!(
-                    archive.get(rkey).is_some(),
-                    "room {} references rkey {rkey} missing from archive",
-                    room.slug
-                );
+    pub fn tags_of(&self, rkey: &str) -> &[Tag] {
+        self.editorial
+            .tags
+            .get(rkey)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    /// Distinct lineage tags with member counts, ordered by tag.
+    pub fn lineage_tags(&self) -> Vec<(String, usize)> {
+        let mut counts: HashMap<&str, usize> = HashMap::new();
+        for tags in self.editorial.tags.values() {
+            for t in tags.iter().filter(|t| t.kind == "lineage") {
+                *counts.entry(t.tag.as_str()).or_default() += 1;
             }
         }
-        Ok(Self { archive, editorial })
+        let mut out: Vec<(String, usize)> = counts
+            .into_iter()
+            .map(|(t, c)| (t.to_string(), c))
+            .collect();
+        out.sort();
+        out
     }
 
-    pub fn room(&self, slug: &str) -> Option<&Room> {
-        self.editorial.rooms.iter().find(|r| r.slug == slug)
-    }
-
-    pub fn room_specimens<'a>(&'a self, room: &'a Room) -> impl Iterator<Item = &'a Specimen> {
-        room.rkeys.iter().filter_map(|k| self.archive.get(k))
-    }
-
-    /// The room a specimen hangs in, if the survey has classified it.
-    pub fn room_of(&self, rkey: &str) -> Option<&Room> {
-        self.editorial
-            .rooms
+    /// All specimens carrying a tag, in archive (chronological) order.
+    pub fn tagged(&self, tag: &str) -> Vec<&Specimen> {
+        self.archive
+            .all()
             .iter()
-            .find(|r| r.rkeys.iter().any(|k| k == rkey))
-    }
-
-    /// Lineage families this specimen belongs to.
-    pub fn families_of(&self, rkey: &str) -> Vec<&Family> {
-        self.editorial
-            .families
-            .iter()
-            .filter(|f| f.rkeys.iter().any(|k| k == rkey))
+            .filter(|s| self.tags_of(&s.rkey).iter().any(|t| t.tag == tag))
             .collect()
+    }
+
+    /// The kind of a tag, if any specimen carries it.
+    pub fn tag_kind(&self, tag: &str) -> Option<&str> {
+        self.editorial
+            .tags
+            .values()
+            .flatten()
+            .find(|t| t.tag == tag)
+            .map(|t| t.kind.as_str())
     }
 
     pub fn notes_of(&self, rkey: &str) -> &[MarginNote] {
@@ -190,22 +158,7 @@ impl Specimen {
         if first_line.is_empty() {
             return format!("Untitled · {}", pretty_date(&self.date));
         }
-        const MAX: usize = 48;
-        if first_line.chars().count() <= MAX {
-            return first_line.to_string();
-        }
-        let mut label = String::new();
-        for word in first_line.split_whitespace() {
-            if label.chars().count() + word.chars().count() + 1 > MAX {
-                break;
-            }
-            if !label.is_empty() {
-                label.push(' ');
-            }
-            label.push_str(word);
-        }
-        label.push('…');
-        label
+        ellipsize(first_line, 48)
     }
 
     /// True when the caption is short enough that the label already shows all
@@ -213,6 +166,26 @@ impl Specimen {
     pub fn label_is_full_caption(&self) -> bool {
         self.caption.trim() == self.label()
     }
+}
+
+/// Truncate to a word boundary within `max` chars, appending an ellipsis.
+pub fn ellipsize(text: &str, max: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    for word in text.split_whitespace() {
+        if out.chars().count() + word.chars().count() + 1 > max {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out.push('…');
+    out
 }
 
 pub fn pretty_date(iso: &str) -> String {
@@ -257,9 +230,114 @@ pub fn pretty_month(year_month: &str) -> String {
         .unwrap_or(pretty)
 }
 
+/// "the-cortex-line" → "the cortex line", for tag display.
+pub fn tag_display(tag: &str) -> String {
+    tag.replace('-', " ")
+}
+
+/// Normalize free text into a tag slug.
+pub fn slugify(text: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = true;
+    for c in text.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    slug.trim_end_matches('-').to_string()
+}
+
+/// #hashtags in a caption, slugified — the artist can tag specimens from
+/// inside his own posts.
+pub fn extract_hashtags(text: &str) -> Vec<String> {
+    let mut tags = Vec::new();
+    for word in text.split_whitespace() {
+        if let Some(raw) = word.strip_prefix('#') {
+            let tag = slugify(raw);
+            if !tag.is_empty() && !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+    }
+    tags
+}
+
 pub fn roman(n: usize) -> &'static str {
     const NUMERALS: [&str; 12] = [
         "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
     ];
     NUMERALS.get(n.wrapping_sub(1)).copied().unwrap_or("—")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn specimen(caption: &str) -> Specimen {
+        Specimen {
+            rkey: "3mtest".into(),
+            cid: "bafytest".into(),
+            file: None,
+            caption: caption.into(),
+            date: "2026-06-04".into(),
+            url: "https://example.test".into(),
+        }
+    }
+
+    #[test]
+    fn short_caption_is_the_label() {
+        let s = specimen("Jellyfish!");
+        assert_eq!(s.label(), "Jellyfish!");
+        assert!(s.label_is_full_caption());
+    }
+
+    #[test]
+    fn long_caption_ellipsizes_at_word_boundary() {
+        let s = specimen(
+            "Ouroboros tentacle dissolves into bowler hat jellyfish and jumping anemones.",
+        );
+        let label = s.label();
+        assert!(label.ends_with('…'), "label: {label}");
+        assert!(label.chars().count() <= 49);
+        assert!(!s.label_is_full_caption());
+    }
+
+    #[test]
+    fn empty_caption_gets_untitled_label() {
+        let s = specimen("");
+        assert_eq!(s.label(), "Untitled · 4 June 2026");
+    }
+
+    #[test]
+    fn dates_render_naturalist_style() {
+        assert_eq!(pretty_date("2026-06-04"), "4 June 2026");
+        assert_eq!(pretty_month("2026-06"), "June 2026");
+    }
+
+    #[test]
+    fn hashtags_extract_and_slugify() {
+        assert_eq!(
+            extract_hashtags("Koosh Rapture #koosh #LivingMetal!"),
+            vec!["koosh".to_string(), "livingmetal".to_string()]
+        );
+        assert!(extract_hashtags("no tags here").is_empty());
+        assert_eq!(slugify("The Cortex Line"), "the-cortex-line");
+        assert_eq!(tag_display("the-cortex-line"), "the cortex line");
+    }
+
+    #[test]
+    fn archive_sorts_and_indexes() {
+        let mut a = specimen("a");
+        a.rkey = "b-later".into();
+        a.date = "2026-06-05".into();
+        let mut b = specimen("b");
+        b.rkey = "a-earlier".into();
+        let archive = Archive::new(vec![a, b]);
+        assert_eq!(archive.all()[0].rkey, "a-earlier");
+        assert_eq!(archive.get("b-later").unwrap().date, "2026-06-05");
+    }
 }

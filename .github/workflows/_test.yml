@@ -1,0 +1,52 @@
+name: Test
+
+on:
+  workflow_call:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: SQLx + Test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install SQLx CLI
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Run Migrations
+        run: sqlx migrate run
+
+      - name: "Check committed `.sqlx` files. If this fails, run `cargo sqlx prepare -- --all-targets` locally and commit the results"
+        run: cargo sqlx prepare --check -- --all-targets
+
+      # `#[sqlx::test]` creates its own databases from DATABASE_URL and
+      # applies ./migrations itself. Macros compile from the offline cache
+      # (prepared with --all-targets, so test-only queries are covered).
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+        env:
+          SQLX_OFFLINE: 1
