@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 atrium-api = "0.25"
 atrium-common = "0.1"
 atrium-identity = "0.1"
@@ -14,6 +15,7 @@ axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
+cja = { git = "https://github.com/coreyja/cja", branch = "main" }
 elliptic-curve = { version = "0.13", features = ["jwk", "pem", "std"] }
 jose-jwk = "0.1"
 maud = { version = "0.27", features = ["axum"] }

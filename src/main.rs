@@ -2,12 +2,12 @@ mod admin;
 mod auth;
 mod bot;
 mod catalog;
+mod cron;
 mod db;
 mod ingest;
+mod jobs;
 mod threads;
 mod views;
-
-use std::sync::Arc;
 
 use axum::{
     Router,
@@ -30,15 +30,31 @@ pub enum MediaMode {
     Cdn,
 }
 
+#[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
-    pub oauth: auth::AtriumOAuthClient,
-    pub oauth_mode: auth::OauthMode,
+    pub oauth: StdArc<auth::AtriumOAuthClient>,
+    pub oauth_mode: StdArc<auth::OauthMode>,
     pub threads: StdArc<threads::ThreadFetcher>,
+    pub cookie_key: cja::server::cookies::CookieKey,
 }
 
-type SharedState = Arc<AppState>;
+impl cja::app_state::AppState for AppState {
+    fn version(&self) -> &str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    fn db(&self) -> &PgPool {
+        &self.pool
+    }
+
+    fn cookie_key(&self) -> &cja::server::cookies::CookieKey {
+        &self.cookie_key
+    }
+}
+
+type SharedState = AppState;
 
 /// Per-request rendering context: a fresh catalog snapshot plus media config.
 pub struct Ctx {
@@ -259,17 +275,6 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         "catalog loaded from database"
     );
 
-    // Live ingest: poll for new posts in the background. PCG_POLL_SECS=0
-    // disables it.
-    let poll_secs: u64 = std::env::var("PCG_POLL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(300);
-    if poll_secs > 0 {
-        tracing::info!(interval_secs = poll_secs, "starting ingest poller");
-        tokio::spawn(ingest::run(pool.clone(), poll_secs));
-    }
-
     auth::seed_curators(&pool).await?;
     let oauth_mode = auth::OauthMode::from_env(port)?;
     tracing::info!(
@@ -281,20 +286,28 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let http = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
         .build()?;
-    let state: SharedState = Arc::new(AppState {
+    let state: SharedState = AppState {
         pool,
         media_mode,
-        oauth,
-        oauth_mode,
+        oauth: StdArc::new(oauth),
+        oauth_mode: StdArc::new(oauth_mode),
         threads: StdArc::new(threads::ThreadFetcher::new(http)),
-    });
+        cookie_key: cja::server::cookies::CookieKey::from_env_or_generate()
+            .map_err(|e| anyhow::anyhow!("cookie key: {e}"))?,
+    };
 
-    // The gallery's Bluesky presence: answer mentions with room links.
-    // Enabled when PCG_BOT_HANDLE + PCG_BOT_PASSWORD are set.
-    if let Some(bot_cfg) = bot::BotConfig::from_env() {
-        tracing::info!(handle = %bot_cfg.handle, "starting gallery bot");
-        tokio::spawn(bot::run(state.pool.clone(), state.threads.clone(), bot_cfg));
-    }
+    // cja background workers: the job worker drains the durable queue, the
+    // cron worker enqueues on schedule (ingest, bot mentions, weekly
+    // wrap-up — see cron.rs).
+    tokio::spawn(cja::jobs::worker::job_worker(
+        state.clone(),
+        jobs::Jobs,
+        std::time::Duration::from_secs(5),
+        cja::jobs::DEFAULT_MAX_RETRIES,
+        cja::jobs::CancellationToken::new(),
+        cja::jobs::DEFAULT_LOCK_TIMEOUT,
+    ));
+    tokio::spawn(cron::run_cron(state.clone()));
 
     let app = Router::new()
         .route("/", get(index))

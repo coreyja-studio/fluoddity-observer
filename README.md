@@ -33,8 +33,15 @@ cargo run -- import       # seed from metadata.jsonl + catalog.json
 cargo run                 # serve
 ```
 
-Subcommands: `serve` (default), `import`, `ingest-once` (one manual poll for
-new posts; the server also polls every `PCG_POLL_SECS`, default 300).
+Subcommands: `serve` (default), `import`, `ingest-once`, `bot-once`,
+`bot-weekly`, `gen-oauth-key`.
+
+Background work runs on the **cja cron + job system**: the cron worker
+enqueues durable jobs on schedule (ingest every `PCG_POLL_SECS`, bot
+mentions every `PCG_BOT_POLL_SECS`, weekly wrap-up hourly), and the job
+worker runs them with automatic retries, exponential backoff, and a
+dead-letter queue. `COOKIE_KEY` (base64) keeps cja's cookie key stable
+across restarts.
 
 Environment:
 

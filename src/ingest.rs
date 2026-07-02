@@ -120,37 +120,6 @@ pub async fn poll_once(pool: &PgPool, client: &reqwest::Client) -> anyhow::Resul
     Ok(added)
 }
 
-/// Background poll loop, spawned alongside the web server.
-pub async fn run(pool: PgPool, interval_secs: u64) {
-    let client = match reqwest::Client::builder()
-        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
-        .build()
-    {
-        Ok(c) => c,
-        Err(err) => {
-            tracing::error!(?err, "ingest disabled: failed to build http client");
-            return;
-        }
-    };
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    loop {
-        ticker.tick().await;
-        match poll_once(&pool, &client).await {
-            Ok(added) if added.is_empty() => {
-                tracing::debug!("ingest: no new specimens");
-            }
-            Ok(added) => {
-                tracing::info!(count = added.len(), rkeys = ?added, "ingest: new specimens collected");
-            }
-            Err(err) => {
-                // Transient network/API failures just wait for the next tick.
-                tracing::warn!(?err, "ingest poll failed");
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

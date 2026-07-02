@@ -291,43 +291,6 @@ pub async fn poll_once(
     Ok(replied)
 }
 
-/// Background poll loop, spawned alongside the web server when the bot is
-/// configured.
-pub async fn run(pool: PgPool, threads: std::sync::Arc<ThreadFetcher>, cfg: BotConfig) {
-    let client = match reqwest::Client::builder()
-        .user_agent("paperclips-gallery-bot/0.1 (fluoddity field guide)")
-        .build()
-    {
-        Ok(c) => c,
-        Err(err) => {
-            tracing::error!(?err, "bot disabled: failed to build http client");
-            return;
-        }
-    };
-    let interval_secs: u64 = std::env::var("PCG_BOT_POLL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(60);
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let dry_run = std::env::var("PCG_BOT_DRY_RUN").is_ok();
-    loop {
-        ticker.tick().await;
-        match poll_once(&pool, &client, &threads, &cfg).await {
-            Ok(0) => tracing::debug!("bot: no new asks"),
-            Ok(n) => tracing::info!(replies = n, "bot: answered asks"),
-            Err(err) => tracing::warn!(?err, "bot poll failed"),
-        }
-        // The weekly wrap-up is a no-op almost always (ledger row exists or
-        // week not complete), so checking on the same cadence is cheap.
-        match weekly_once(&pool, &client, &cfg, dry_run).await {
-            Ok(Some(n)) => tracing::info!(picks = n, "bot: weekly wrap-up handled"),
-            Ok(None) => {}
-            Err(err) => tracing::warn!(?err, "bot weekly check failed"),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
