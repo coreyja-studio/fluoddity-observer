@@ -167,12 +167,13 @@ async fn main() -> anyhow::Result<()> {
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
         Some("bot-once") => bot_once(pool).await,
+        Some("bot-weekly") => bot_weekly(pool).await,
         Some("gen-oauth-key") => {
             println!("{}", auth::generate_private_key()?);
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `bot-once`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -212,6 +213,31 @@ async fn bot_once(pool: PgPool) -> anyhow::Result<()> {
     let threads = threads::ThreadFetcher::new(client.clone());
     let replied = bot::poll_once(&pool, &client, &threads, &cfg).await?;
     tracing::info!(replied, "bot-once complete");
+    Ok(())
+}
+
+/// One manual weekly wrap-up check. PCG_BOT_DRY_RUN=1 composes and logs
+/// without posting (and works without bot credentials).
+async fn bot_weekly(pool: PgPool) -> anyhow::Result<()> {
+    let dry_run = std::env::var("PCG_BOT_DRY_RUN").is_ok();
+    let cfg = if dry_run {
+        bot::BotConfig::from_env().unwrap_or_else(|| bot::BotConfig {
+            handle: String::new(),
+            password: String::new(),
+            pds: "https://bsky.social".to_string(),
+            public_url: bot::public_url(),
+        })
+    } else {
+        bot::BotConfig::from_env()
+            .ok_or_else(|| anyhow::anyhow!("PCG_BOT_HANDLE and PCG_BOT_PASSWORD must be set"))?
+    };
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery-bot/0.1 (fluoddity field guide)")
+        .build()?;
+    match bot::weekly_once(&pool, &client, &cfg, dry_run).await? {
+        Some(picks) => tracing::info!(picks, dry_run, "weekly wrap-up handled"),
+        None => tracing::info!("weekly wrap-up: staying silent"),
+    }
     Ok(())
 }
 

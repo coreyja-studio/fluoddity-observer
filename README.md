@@ -93,6 +93,14 @@ client-side. `bot_replies` ledger guarantees one answer per mention;
 `bot-once` runs a single poll manually. Set `PCG_PUBLIC_URL` so links point
 at the hosted site.
 
+**Weekly wrap-up**: once a completed Monday–Sunday week has passed, the bot
+posts a short thread of that week's most-liked specimens (up to 3, each
+quote-posting the original so the loop plays in-feed). Fewer entries on slow
+weeks; *nothing at all* when the artist was silent or nothing drew a like —
+the gallery never reads as a content quota. `bot-weekly` runs the check
+manually; `PCG_BOT_DRY_RUN=1` composes and logs without posting (works
+without credentials).
+
 ## The curator's desk (admin)
 
 `/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in

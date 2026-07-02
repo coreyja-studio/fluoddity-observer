@@ -310,12 +310,20 @@ pub async fn run(pool: PgPool, threads: std::sync::Arc<ThreadFetcher>, cfg: BotC
         .unwrap_or(60);
     let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let dry_run = std::env::var("PCG_BOT_DRY_RUN").is_ok();
     loop {
         ticker.tick().await;
         match poll_once(&pool, &client, &threads, &cfg).await {
             Ok(0) => tracing::debug!("bot: no new asks"),
             Ok(n) => tracing::info!(replies = n, "bot: answered asks"),
             Err(err) => tracing::warn!(?err, "bot poll failed"),
+        }
+        // The weekly wrap-up is a no-op almost always (ledger row exists or
+        // week not complete), so checking on the same cadence is cheap.
+        match weekly_once(&pool, &client, &cfg, dry_run).await {
+            Ok(Some(n)) => tracing::info!(picks = n, "bot: weekly wrap-up handled"),
+            Ok(None) => {}
+            Err(err) => tracing::warn!(?err, "bot weekly check failed"),
         }
     }
 }
@@ -421,5 +429,331 @@ mod tests {
             room.author_handle
         );
         assert_eq!(&text.as_bytes()[start..end], url.as_bytes());
+    }
+}
+
+// ---- the weekly wrap-up ----
+//
+// Once a week (when a completed Monday–Sunday week hasn't been wrapped yet),
+// the bot posts a short thread: the most-liked specimens collected that
+// week, each entry quote-posting the original so the loop plays in-feed.
+// Up to three; fewer on slow weeks; nothing at all when the artist was
+// silent or nothing drew a like — the gallery must never read as a content
+// quota.
+
+const WEEKLY_MAX_PICKS: usize = 3;
+
+/// A specimen that made the week's wrap-up.
+#[derive(Debug)]
+pub struct WeeklyPick {
+    pub rkey: String,
+    pub label: String,
+    pub likes: i64,
+    /// The original post, for the quote embed.
+    pub uri: String,
+    pub cid: String,
+}
+
+/// The last completed Monday..=Sunday week strictly before `today`.
+pub fn last_completed_week(today: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
+    use chrono::Datelike as _;
+    let this_monday = today - chrono::Days::new(today.weekday().num_days_from_monday() as u64);
+    let week_start = this_monday - chrono::Days::new(7);
+    (week_start, week_start + chrono::Days::new(6))
+}
+
+/// Rank a week's specimens: most liked first, ties to the newer post; keep
+/// only liked ones; at most WEEKLY_MAX_PICKS.
+pub fn select_picks(mut candidates: Vec<WeeklyPick>) -> Vec<WeeklyPick> {
+    candidates.retain(|c| c.likes > 0);
+    candidates.sort_by(|a, b| b.likes.cmp(&a.likes).then(b.rkey.cmp(&a.rkey)));
+    candidates.truncate(WEEKLY_MAX_PICKS);
+    candidates
+}
+
+/// One wrap-up thread entry: text, link facets, and the quoted post ref.
+pub struct WeeklyEntry {
+    pub text: String,
+    pub facets: serde_json::Value,
+    pub quoted_uri: String,
+    pub quoted_cid: String,
+}
+
+/// Compose the wrap-up thread: root text, then one entry per pick.
+pub fn compose_weekly(
+    public_url: &str,
+    total_collected: usize,
+    picks: &[WeeklyPick],
+) -> (String, Vec<WeeklyEntry>) {
+    let archive_url = format!("{public_url}/archive");
+    let root = format!(
+        "The week in Fluoddity — {total_collected} new specimen{} joined the expedition record. The most beheld:\n\n{archive_url}",
+        if total_collected == 1 { "" } else { "s" },
+    );
+    let entries = picks
+        .iter()
+        .enumerate()
+        .map(|(i, pick)| {
+            let page_url = format!("{public_url}/specimen/{}", pick.rkey);
+            let text = format!(
+                "{}. “{}” — {} like{}\n\n{page_url}",
+                i + 1,
+                pick.label,
+                pick.likes,
+                if pick.likes == 1 { "" } else { "s" },
+            );
+            let start = text.find(&page_url).expect("page url embedded in entry");
+            let facets = serde_json::json!([{
+                "index": {"byteStart": start, "byteEnd": start + page_url.len()},
+                "features": [{"$type": "app.bsky.richtext.facet#link", "uri": page_url}],
+            }]);
+            WeeklyEntry {
+                text,
+                facets,
+                quoted_uri: pick.uri.clone(),
+                quoted_cid: pick.cid.clone(),
+            }
+        })
+        .collect();
+    (root, entries)
+}
+
+/// Post the wrap-up for the last completed week if it's due. Returns the
+/// number of picks posted, or None when staying silent (already posted, no
+/// new specimens, or nothing drew a like).
+pub async fn weekly_once(
+    pool: &PgPool,
+    client: &reqwest::Client,
+    cfg: &BotConfig,
+    dry_run: bool,
+) -> anyhow::Result<Option<usize>> {
+    let today = chrono::Utc::now().date_naive();
+    let (week_start, week_end) = last_completed_week(today);
+
+    let already = sqlx::query!(
+        "SELECT week_start FROM bot_weekly WHERE week_start = $1",
+        week_start
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    if already {
+        return Ok(None);
+    }
+
+    let specimens = sqlx::query!(
+        "SELECT rkey, caption FROM specimens WHERE collected_on BETWEEN $1 AND $2",
+        week_start,
+        week_end,
+    )
+    .fetch_all(pool)
+    .await?;
+    if specimens.is_empty() {
+        // A silent week gets no wrap-up — and no ledger row, so a late
+        // ingest of that week's posts can still produce one.
+        return Ok(None);
+    }
+    let total_collected = specimens.len();
+
+    let meta = sqlx::query!("SELECT artist_did FROM gallery_meta")
+        .fetch_one(pool)
+        .await?;
+
+    // Like counts via public getPosts (25 uris per call, no auth needed).
+    let mut candidates = Vec::new();
+    for chunk in specimens.chunks(25) {
+        let uris: Vec<String> = chunk
+            .iter()
+            .map(|s| format!("at://{}/app.bsky.feed.post/{}", meta.artist_did, s.rkey))
+            .collect();
+        let response: serde_json::Value = client
+            .get("https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts")
+            .query(
+                &uris
+                    .iter()
+                    .map(|u| ("uris", u.as_str()))
+                    .collect::<Vec<_>>(),
+            )
+            .send()
+            .await?
+            .error_for_status()
+            .context("getPosts for weekly likes failed")?
+            .json()
+            .await?;
+        let Some(posts) = response.get("posts").and_then(|p| p.as_array()) else {
+            continue;
+        };
+        for post in posts {
+            let Some(uri) = post.get("uri").and_then(|u| u.as_str()) else {
+                continue;
+            };
+            let Some((_, rkey)) = split_at_uri(uri) else {
+                continue;
+            };
+            let Some(row) = chunk.iter().find(|s| s.rkey == rkey) else {
+                continue;
+            };
+            candidates.push(WeeklyPick {
+                label: crate::catalog::ellipsize(
+                    row.caption.lines().next().unwrap_or("untitled"),
+                    64,
+                ),
+                rkey,
+                likes: post.get("likeCount").and_then(|l| l.as_i64()).unwrap_or(0),
+                uri: uri.to_string(),
+                cid: post
+                    .get("cid")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            });
+        }
+    }
+
+    let picks = select_picks(candidates);
+    if picks.is_empty() {
+        return Ok(None);
+    }
+
+    let (root_text, entries) = compose_weekly(&cfg.public_url, total_collected, &picks);
+    if dry_run {
+        tracing::info!(week = %week_start, root = %root_text, "weekly wrap-up (dry run)");
+        for entry in &entries {
+            tracing::info!(entry = %entry.text, quoting = %entry.quoted_uri, "weekly entry (dry run)");
+        }
+        return Ok(Some(entries.len()));
+    }
+
+    let session = login(client, cfg).await?;
+    let now = || chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let post = |record: serde_json::Value| {
+        let client = client.clone();
+        let pds = cfg.pds.clone();
+        let jwt = session.access_jwt.clone();
+        let did = session.did.clone();
+        async move {
+            let created: serde_json::Value = client
+                .post(format!("{pds}/xrpc/com.atproto.repo.createRecord"))
+                .bearer_auth(jwt)
+                .json(&serde_json::json!({
+                    "repo": did,
+                    "collection": "app.bsky.feed.post",
+                    "record": record,
+                }))
+                .send()
+                .await?
+                .error_for_status()
+                .context("posting wrap-up entry failed")?
+                .json()
+                .await?;
+            anyhow::Ok((
+                created["uri"].as_str().unwrap_or_default().to_string(),
+                created["cid"].as_str().unwrap_or_default().to_string(),
+            ))
+        }
+    };
+
+    let root = post(serde_json::json!({
+        "$type": "app.bsky.feed.post",
+        "text": root_text,
+        "createdAt": now(),
+    }))
+    .await?;
+
+    let mut parent = root.clone();
+    for entry in &entries {
+        parent = post(serde_json::json!({
+            "$type": "app.bsky.feed.post",
+            "text": entry.text,
+            "facets": entry.facets,
+            "createdAt": now(),
+            "reply": {
+                "root": {"uri": root.0, "cid": root.1},
+                "parent": {"uri": parent.0, "cid": parent.1},
+            },
+            "embed": {
+                "$type": "app.bsky.embed.record",
+                "record": {"uri": entry.quoted_uri, "cid": entry.quoted_cid},
+            },
+        }))
+        .await?;
+    }
+
+    sqlx::query!(
+        "INSERT INTO bot_weekly (week_start, root_uri) VALUES ($1, $2)
+         ON CONFLICT (week_start) DO NOTHING",
+        week_start,
+        root.0,
+    )
+    .execute(pool)
+    .await?;
+    tracing::info!(week = %week_start, root = %root.0, picks = entries.len(), "weekly wrap-up posted");
+    Ok(Some(entries.len()))
+}
+
+#[cfg(test)]
+mod weekly_tests {
+    use super::*;
+
+    fn pick(rkey: &str, likes: i64) -> WeeklyPick {
+        WeeklyPick {
+            rkey: rkey.into(),
+            label: format!("specimen {rkey}"),
+            likes,
+            uri: format!("at://did:plc:artist/app.bsky.feed.post/{rkey}"),
+            cid: "bafy-post".into(),
+        }
+    }
+
+    #[test]
+    fn weeks_are_monday_through_sunday_and_completed() {
+        // Wednesday 2026-07-01 → previous week Mon 22 Jun ..= Sun 28 Jun.
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let (start, end) = last_completed_week(today);
+        assert_eq!(start, chrono::NaiveDate::from_ymd_opt(2026, 6, 22).unwrap());
+        assert_eq!(end, chrono::NaiveDate::from_ymd_opt(2026, 6, 28).unwrap());
+        // A Monday wraps the week that just ended yesterday.
+        let monday = chrono::NaiveDate::from_ymd_opt(2026, 7, 6).unwrap();
+        let (start, end) = last_completed_week(monday);
+        assert_eq!(start, chrono::NaiveDate::from_ymd_opt(2026, 6, 29).unwrap());
+        assert_eq!(end, chrono::NaiveDate::from_ymd_opt(2026, 7, 5).unwrap());
+    }
+
+    #[test]
+    fn picks_top_three_by_likes_and_drop_unliked() {
+        let picks = select_picks(vec![
+            pick("3a", 2),
+            pick("3b", 9),
+            pick("3c", 0),
+            pick("3d", 5),
+            pick("3e", 3),
+        ]);
+        let rkeys: Vec<_> = picks.iter().map(|p| p.rkey.as_str()).collect();
+        assert_eq!(rkeys, ["3b", "3d", "3e"]);
+    }
+
+    #[test]
+    fn slow_weeks_get_fewer_and_silence_gets_none() {
+        assert_eq!(select_picks(vec![pick("3a", 1)]).len(), 1);
+        assert!(select_picks(vec![pick("3a", 0)]).is_empty());
+        assert!(select_picks(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn wrap_up_thread_composes_with_quote_embeds() {
+        let picks = vec![pick("3b", 9), pick("3d", 5)];
+        let (root, entries) = compose_weekly("https://fluoddity.example", 7, &picks);
+        assert!(root.contains("7 new specimens"));
+        assert!(root.contains("https://fluoddity.example/archive"));
+        assert_eq!(entries.len(), 2);
+        let entry = &entries[0];
+        assert!(entry.text.starts_with("1. “specimen 3b” — 9 likes"));
+        assert!(entry.quoted_uri.ends_with("/3b"));
+        let start = entry.facets[0]["index"]["byteStart"].as_u64().unwrap() as usize;
+        let end = entry.facets[0]["index"]["byteEnd"].as_u64().unwrap() as usize;
+        assert_eq!(
+            &entry.text.as_bytes()[start..end],
+            b"https://fluoddity.example/specimen/3b"
+        );
     }
 }
