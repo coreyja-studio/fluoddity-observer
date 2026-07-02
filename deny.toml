@@ -1,0 +1,17 @@
+# cargo-deny configuration — CI runs `cargo-deny check bans`.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+deny = [
+  # rustls everywhere; openssl must never sneak into the tree.
+  { name = "openssl" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

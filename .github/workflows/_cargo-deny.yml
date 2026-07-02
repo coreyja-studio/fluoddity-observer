@@ -1,0 +1,24 @@
+name: Cargo Deny
+
+on:
+  workflow_call:
+
+jobs:
+  cargo-deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+
+      - name: Install cargo-deny
+        run: cargo binstall --no-confirm --force cargo-deny
+
+      - name: Cargo Deny
+        run: cargo-deny check bans

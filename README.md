@@ -122,6 +122,28 @@ only: the atproto tokens are discarded the moment the DID is verified.
     `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>` then
     http://127.0.0.1:4601/admin).
 
+## CI & deploy
+
+GitHub Actions (`ci.yml` + underscore reusables, the house convention): fmt,
+clippy (`-D warnings`, offline sqlx), SQLx prepare-check + tests against a
+Postgres service, cargo-deny (bans; openssl is denied), conventional-commit
+PR titles, and a `ready` aggregator for branch protection. Pushes to `main`
+deploy to Fly (`flyctl deploy --remote-only`).
+
+One-time setup:
+
+```bash
+fly apps create paperclips-gallery
+fly secrets set DATABASE_URL=… PCG_OAUTH_PRIVATE_KEY=… PCG_BOT_PASSWORD=…
+gh secret set FLY_API_TOKEN --repo coreyja-studio/paperclips-gallery
+```
+
+Then fill `PCG_PUBLIC_URL` / `PCG_BOT_HANDLE` / `PCG_ADMIN_DIDS` in
+`fly.toml`'s `[env]`. Hosted mode runs `PCG_MEDIA_MODE=cdn` — no media
+volume. Seed the database once from anywhere with the archive:
+`DATABASE_URL=<neon> paperclips-gallery import`. When queries change, run
+`cargo sqlx prepare -- --all-targets` and commit `.sqlx`.
+
 ## Curation
 
 `catalog.json` is the whole editorial layer: rooms, specimens, lineage

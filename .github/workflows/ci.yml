@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  fmt:
+    uses: ./.github/workflows/_fmt.yml
+
+  clippy:
+    uses: ./.github/workflows/_clippy.yml
+
+  test:
+    uses: ./.github/workflows/_test.yml
+
+  cargo-deny:
+    uses: ./.github/workflows/_cargo-deny.yml
+
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows conventional commits
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?(!)?: .+'
+          if [[ "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title follows conventional commits: $PR_TITLE"
+          else
+            echo "PR title does not follow conventional commits"
+            echo ""
+            echo "  Got: $PR_TITLE"
+            echo "  Expected format: <type>[optional scope][!]: <description>"
+            echo "  Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+            exit 1
+          fi
+
+  ready:
+    if: always()
+    needs: [fmt, clippy, test, cargo-deny, pr-title]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.fmt.result }}" != "success" ]]; then exit 1; fi
+          if [[ "${{ needs.clippy.result }}" != "success" ]]; then exit 1; fi
+          if [[ "${{ needs.test.result }}" != "success" ]]; then exit 1; fi
+          if [[ "${{ needs.cargo-deny.result }}" != "success" ]]; then exit 1; fi
+          if [[ "${{ needs.pr-title.result }}" != "success" && "${{ needs.pr-title.result }}" != "skipped" ]]; then exit 1; fi
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [fmt, clippy, test, cargo-deny]
+    uses: ./.github/workflows/_deploy.yml
+    secrets: inherit
