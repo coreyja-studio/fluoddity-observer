@@ -35,7 +35,9 @@
       { rootMargin: "120px" }
     );
     document.querySelectorAll("video.specimen-video").forEach(function (v) {
-      observer.observe(v);
+      // Videos with native controls answer to the viewer, not the
+      // observer — auto-resume would fight a deliberate pause.
+      if (!v.controls) observer.observe(v);
     });
   }
 
@@ -97,6 +99,9 @@
   }
 
   document.querySelectorAll("video.specimen-video").forEach(function (video) {
+    // Solo videos carry native controls — taps there pause and scrub;
+    // the fullscreen button covers what behold does for grids.
+    if (video.controls) return;
     video.addEventListener("click", function () {
       openBehold(video);
     });
@@ -109,6 +114,11 @@
   });
 
   behold.addEventListener("click", closeBehold);
+  // The behold video has native controls now — pausing or scrubbing must
+  // not fall through to the backdrop and close the overlay.
+  beholdVideo.addEventListener("click", function (e) {
+    e.stopPropagation();
+  });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && behold.classList.contains("open")) closeBehold();
   });

@@ -80,9 +80,9 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
             body {
                 (body)
                 div #behold aria-hidden="true" {
-                    video muted loop playsinline {}
+                    video muted loop playsinline controls {}
                     img alt="";
-                    p .behold-hint { "tap anywhere to return to the notebook" }
+                    p .behold-hint { "tap outside the specimen to return to the notebook" }
                 }
                 script src="/static/gallery.js" defer {}
             }
@@ -99,7 +99,8 @@ fn specimen_media(ctx: &Ctx, s: &Specimen) -> Markup {
 /// `full` swaps the grid-friendly source for the vault's archival copy —
 /// the solo specimen page earns the full-rate file up front; a grid of a
 /// dozen autoplaying loops stays on the Bluesky CDN and only behold
-/// (via data-full) trades up.
+/// (via data-full) trades up. Solo videos also get native controls
+/// (pause/scrub/fullscreen); grid loops stay bare and open behold on tap.
 fn specimen_media_tiered(ctx: &Ctx, s: &Specimen, full: bool) -> Markup {
     match s.kind {
         MediaKind::Video => {
@@ -116,6 +117,7 @@ fn specimen_media_tiered(ctx: &Ctx, s: &Specimen, full: bool) -> Markup {
                     data-hls=[hls]
                     data-full=[full_src]
                     muted loop playsinline autoplay
+                    controls[full]
                     preload="metadata"
                     aria-label=(s.label()) {}
             }

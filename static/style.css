@@ -598,7 +598,8 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
 
 .behold-hint {
   position: absolute;
-  bottom: 1rem;
+  /* Top, not bottom — the video's native control bar owns the bottom edge. */
+  top: max(1rem, env(safe-area-inset-top));
   left: 0;
   right: 0;
   text-align: center;
