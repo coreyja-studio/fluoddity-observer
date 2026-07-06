@@ -124,14 +124,6 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
             main .sheet {
                 (page_header(ctx, "Frontispiece"))
 
-                blockquote .origin-note {
-                    p { "“" (editorial.origin.text) "”" }
-                    footer {
-                        "— the wish that opened this guide, "
-                        a href=(editorial.origin.url) { "@" (editorial.origin.handle) }
-                    }
-                }
-
                 section .contents {
                     h2 .room-label { "Contents · The Rooms" }
                     p .room-sublabel {
@@ -221,7 +213,7 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                 }
 
                 footer .colophon-link {
-                    a href="/colophon" { "colophon — why this guide exists" }
+                    a href="/colophon" { "colophon — why this guide exists, and whose wish began it" }
                 }
             }
         },
