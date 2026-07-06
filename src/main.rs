@@ -10,6 +10,7 @@ mod feed;
 mod ingest;
 mod jobs;
 mod margin_notes;
+mod storage;
 mod suggestions;
 mod threads;
 mod views;
@@ -39,6 +40,12 @@ pub enum MediaMode {
 pub struct AppState {
     pub pool: PgPool,
     pub media_mode: MediaMode,
+    /// Pull-zone base URL in front of the vault; `None` = Bluesky CDN only.
+    pub media_base: Option<String>,
+    /// Vault upload credentials — the masters upload needs them; serving
+    /// doesn't.
+    pub bunny: Option<StdArc<storage::BunnyConfig>>,
+    pub http: reqwest::Client,
     pub oauth: StdArc<auth::AtriumOAuthClient>,
     pub oauth_mode: StdArc<auth::OauthMode>,
     pub threads: StdArc<threads::ThreadFetcher>,
@@ -65,9 +72,21 @@ type SharedState = AppState;
 pub struct Ctx {
     pub catalog: Catalog,
     pub media_mode: MediaMode,
+    pub media_base: Option<String>,
 }
 
 impl Ctx {
+    /// The best archival copy of a video, served from the vault's pull
+    /// zone: the artist's master if we hold one, else the PDS original.
+    /// `None` means the Bluesky CDN re-encode is all there is. Grids keep
+    /// the CDN source regardless — a room autoplays a dozen loops at
+    /// thumbnail size; behold, specimen pages, and ambient earn this one.
+    pub fn full_video_src(&self, s: &catalog::Specimen) -> Option<String> {
+        let base = self.media_base.as_deref()?;
+        let key = s.master_key.as_deref().or(s.pds_key.as_deref())?;
+        Some(format!("{base}/{key}"))
+    }
+
     /// (video src, hls url for hls.js, poster url)
     pub fn video_sources(&self, s: &catalog::Specimen) -> (String, Option<String>, String) {
         let local = match self.media_mode {
@@ -173,6 +192,7 @@ impl AppState {
         Ok(Ctx {
             catalog: db::load_catalog(&self.pool).await?,
             media_mode: self.media_mode,
+            media_base: self.media_base.clone(),
         })
     }
 }
@@ -255,14 +275,22 @@ async fn pull_media(pool: PgPool) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
         .build()?;
-    let stats = backup::pull_media(&pool, &client, &media_dir()).await?;
+    let bunny = storage::BunnyConfig::from_env();
+    if bunny.is_none() {
+        tracing::info!("vault sync disabled — PCG_BUNNY_STORAGE_ZONE/KEY unset");
+    }
+    let stats = backup::pull_media(&pool, &client, &media_dir(), bunny.as_ref()).await?;
     tracing::info!(
         pulled = stats.pulled,
+        synced = stats.synced,
         failed = stats.failed,
         "pull-media complete"
     );
     if stats.failed > 0 {
-        anyhow::bail!("{} blob(s) failed to pull — rerun to retry", stats.failed);
+        anyhow::bail!(
+            "{} blob(s) failed to pull or sync — rerun to retry",
+            stats.failed
+        );
     }
     Ok(())
 }
@@ -381,9 +409,19 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let http = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
         .build()?;
+    let media_base = storage::media_base_from_env();
+    let bunny = storage::BunnyConfig::from_env().map(StdArc::new);
+    tracing::info!(
+        media_base = media_base.as_deref().unwrap_or("(bluesky cdn only)"),
+        vault_uploads = bunny.is_some(),
+        "media vault"
+    );
     let state: SharedState = AppState {
         pool,
         media_mode,
+        media_base,
+        bunny,
+        http: http.clone(),
         oauth: StdArc::new(oauth),
         oauth_mode: StdArc::new(oauth_mode),
         threads: StdArc::new(threads::ThreadFetcher::new(http)),
@@ -442,6 +480,16 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         )
         .route("/admin/tags/add", axum::routing::post(admin::add_tag))
         .route("/admin/tags/remove", axum::routing::post(admin::remove_tag))
+        .route("/admin/masters", get(admin::masters_page))
+        .route(
+            "/admin/masters/upload",
+            axum::routing::post(admin::upload_master)
+                // Masters are render-node originals, far past the default
+                // 2 MB body cap.
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    admin::MAX_MASTER_BYTES as usize,
+                )),
+        )
         .route("/static/style.css", get(stylesheet))
         .route("/static/admin.css", get(admin_css))
         .route("/static/gallery.js", get(gallery_js))
@@ -657,4 +705,94 @@ async fn gallery_js() -> impl IntoResponse {
 
 fn not_found() -> Response {
     (StatusCode::NOT_FOUND, views::not_found()).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::{Archive, Artist, Editorial, MediaKind, Origin, Specimen};
+
+    fn ctx(media_base: Option<&str>, specimen: Specimen) -> Ctx {
+        Ctx {
+            catalog: Catalog {
+                archive: Archive::new(vec![specimen]),
+                editorial: Editorial {
+                    artist: Artist {
+                        handle: "artist.test".into(),
+                        did: "did:plc:artist".into(),
+                        name: "Test Artist".into(),
+                    },
+                    origin: Origin {
+                        handle: "o".into(),
+                        text: "wish".into(),
+                        url: "u".into(),
+                    },
+                    tags: Default::default(),
+                    margin_notes: Default::default(),
+                },
+            },
+            media_mode: MediaMode::Cdn,
+            media_base: media_base.map(str::to_string),
+        }
+    }
+
+    fn video(pds_key: Option<&str>, master_key: Option<&str>) -> Specimen {
+        Specimen {
+            rkey: "3mtest".into(),
+            cid: "bafytest".into(),
+            kind: MediaKind::Video,
+            file: None,
+            pds_key: pds_key.map(str::to_string),
+            master_key: master_key.map(str::to_string),
+            caption: "A specimen".into(),
+            date: "2026-06-04".into(),
+            url: "https://example.test".into(),
+            images: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn full_src_prefers_master_over_pds_original() {
+        let base = Some("https://media.fluoddity.observer");
+        let c = ctx(base, video(Some("pds/3mtest_bafytest.mp4"), None));
+        assert_eq!(
+            c.full_video_src(c.catalog.archive.get("3mtest").unwrap()),
+            Some("https://media.fluoddity.observer/pds/3mtest_bafytest.mp4".into())
+        );
+
+        let c = ctx(
+            base,
+            video(Some("pds/3mtest_bafytest.mp4"), Some("masters/3mtest.mp4")),
+        );
+        assert_eq!(
+            c.full_video_src(c.catalog.archive.get("3mtest").unwrap()),
+            Some("https://media.fluoddity.observer/masters/3mtest.mp4".into())
+        );
+    }
+
+    #[test]
+    fn full_src_needs_both_a_base_and_a_key() {
+        // No vault keys recorded → only the Bluesky CDN exists.
+        let c = ctx(Some("https://media.fluoddity.observer"), video(None, None));
+        assert_eq!(
+            c.full_video_src(c.catalog.archive.get("3mtest").unwrap()),
+            None
+        );
+
+        // Keys recorded but no pull zone configured → keep falling back.
+        let c = ctx(None, video(Some("pds/3mtest_bafytest.mp4"), None));
+        assert_eq!(
+            c.full_video_src(c.catalog.archive.get("3mtest").unwrap()),
+            None
+        );
+
+        // The grid source is untouched by vault keys either way.
+        let c = ctx(
+            Some("https://media.fluoddity.observer"),
+            video(Some("pds/3mtest_bafytest.mp4"), None),
+        );
+        let (src, hls, _) = c.video_sources(c.catalog.archive.get("3mtest").unwrap());
+        assert!(src.contains("video.bsky.app"));
+        assert!(hls.is_some());
+    }
 }

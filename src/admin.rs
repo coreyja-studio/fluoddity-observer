@@ -5,16 +5,18 @@
 use atrium_oauth::{AuthorizeOptions, CallbackParams, KnownScope, Scope};
 use axum::{
     Form,
-    extract::{Query, State},
+    extract::{Multipart, Query, State},
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use maud::{DOCTYPE, Markup, html};
+use tokio::io::AsyncWriteExt;
 
 use crate::{
     SharedState,
     auth::{self, Curator, SESSION_COOKIE},
-    db, suggestions,
+    catalog::MediaKind,
+    db, storage, suggestions,
 };
 
 /// Errors render as a plain 500; auth failures redirect in the extractor.
@@ -258,6 +260,14 @@ pub async fn dashboard(
             }
 
             section {
+                h2 .room-label { "The Vault" }
+                p .room-sublabel {
+                    "full-rate originals and the artist's render-node masters — "
+                    a href="/admin/masters" { "see what's still wanted →" }
+                }
+            }
+
+            section {
                 h2 .room-label { "The Suggestion Box" }
                 p .room-sublabel {
                     "hashtags left in replies to (and quote-posts of) the artist's originals, "
@@ -286,6 +296,205 @@ pub async fn dashboard(
             }
         },
     ))
+}
+
+// ---- the vault (masters) ----
+
+/// Upload cap for one master. Render-node originals run far past the loops'
+/// few MB, but a master is still one ten-second clip, not a feature film.
+pub const MAX_MASTER_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Extension for an accepted master upload; also the whitelist. Bunny's CDN
+/// types objects by extension, so only extensions browsers can play get in.
+fn master_extension(content_type: Option<&str>, file_name: Option<&str>) -> Option<&'static str> {
+    match content_type
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+    {
+        "video/mp4" => return Some("mp4"),
+        "video/quicktime" => return Some("mov"),
+        "video/webm" => return Some("webm"),
+        _ => {}
+    }
+    match file_name?.rsplit('.').next()?.to_ascii_lowercase().as_str() {
+        "mp4" | "m4v" => Some("mp4"),
+        "mov" => Some("mov"),
+        "webm" => Some("webm"),
+        _ => None,
+    }
+}
+
+/// The desiderata list: every video specimen the vault holds no master for,
+/// each with an upload slot. This is the page the artist works through.
+pub async fn masters_page(
+    State(state): State<SharedState>,
+    curator: Curator,
+) -> Result<Markup, AdminError> {
+    let catalog = db::load_catalog(&state.pool).await?;
+    let videos: Vec<_> = catalog
+        .archive
+        .all()
+        .iter()
+        .filter(|s| s.kind == MediaKind::Video)
+        .collect();
+    let held = videos.iter().filter(|s| s.master_key.is_some()).count();
+    let wanted: Vec<_> = videos
+        .iter()
+        .filter(|s| s.master_key.is_none())
+        .rev() // newest sightings first — the freshest are easiest to find
+        .collect();
+    let uploads_ready = state.bunny.is_some();
+    Ok(admin_base(
+        "The Vault",
+        html! {
+            p .signed-in {
+                "signed in as " strong { (display_name(&curator)) }
+                " · " a href="/admin" { "← the desk" }
+            }
+
+            section {
+                h2 .room-label { "The Vault · Wanted: Masters" }
+                p .room-sublabel {
+                    "the museum keeps the best copy of every specimen it can get. "
+                    "Bluesky's CDN re-encodes what the timeline sees; the vault below "
+                    "holds the originals. A render-node master is better still — "
+                    "upload one here and every wall in the guide upgrades on the spot."
+                }
+                p .room-sublabel {
+                    strong { (held) } " master"
+                    @if held != 1 { "s" }
+                    " held · " strong { (wanted.len()) } " still wanted"
+                }
+                @if !uploads_ready {
+                    p .room-sublabel {
+                        "⚠ the vault isn't accepting uploads — PCG_BUNNY_STORAGE_ZONE / "
+                        "PCG_BUNNY_STORAGE_KEY are unset on this deployment"
+                    }
+                }
+                @for s in &wanted {
+                    div .admin-specimen {
+                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                        span .admin-date {
+                            (s.date)
+                            @if s.pds_key.is_some() { " · PDS original held" }
+                            @else { " · Bluesky re-encode only" }
+                        }
+                        @if uploads_ready {
+                            form method="post" action="/admin/masters/upload"
+                                enctype="multipart/form-data" .inline-form {
+                                input type="hidden" name="rkey" value=(s.rkey);
+                                input type="file" name="master" accept="video/mp4,video/quicktime,video/webm" required;
+                                button type="submit" { "into the vault" }
+                            }
+                        }
+                    }
+                }
+                @if wanted.is_empty() {
+                    p .room-sublabel { "the vault holds a master for every specimen — the desiderata list is empty 🎉" }
+                }
+            }
+        },
+    ))
+}
+
+/// Take one master into the vault: spool the upload to a temp file (so
+/// Bunny gets a Content-Length and a dropped connection never half-writes
+/// the vault), PUT it, then record the key. One slot per specimen — a
+/// re-upload replaces the master.
+pub async fn upload_master(
+    State(state): State<SharedState>,
+    curator: Curator,
+    mut multipart: Multipart,
+) -> Result<Response, AdminError> {
+    let Some(bunny) = state.bunny.clone() else {
+        return Ok((
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "The vault isn't accepting uploads on this deployment.",
+        )
+            .into_response());
+    };
+
+    let mut rkey: Option<String> = None;
+    while let Some(mut field) = multipart.next_field().await.map_err(anyhow::Error::from)? {
+        match field.name() {
+            Some("rkey") => rkey = Some(field.text().await.map_err(anyhow::Error::from)?),
+            Some("master") => {
+                // The form puts rkey before the file, so it's known by now.
+                let Some(rkey) = rkey.as_deref().map(str::to_string) else {
+                    return Ok(bad_request("The upload arrived without a specimen rkey."));
+                };
+                let is_video = sqlx::query!("SELECT kind FROM specimens WHERE rkey = $1", rkey)
+                    .fetch_optional(&state.pool)
+                    .await?
+                    .is_some_and(|row| row.kind == "video");
+                if !is_video {
+                    return Ok(bad_request("No video specimen by that rkey."));
+                }
+                let Some(ext) = master_extension(field.content_type(), field.file_name()) else {
+                    return Ok(bad_request(
+                        "That doesn't look like a video file (mp4, mov, or webm).",
+                    ));
+                };
+
+                let tmp =
+                    std::env::temp_dir().join(format!("pcg-master-{}.part", uuid::Uuid::new_v4()));
+                let spooled = spool_to_file(&mut field, &tmp).await;
+                let result = match spooled {
+                    Ok(bytes) => {
+                        let key = storage::master_key(&rkey, ext);
+                        let put = bunny.put_file(&state.http, &key, &tmp).await;
+                        match put {
+                            Ok(()) => {
+                                sqlx::query!(
+                                    "UPDATE specimens SET master_key = $1 WHERE rkey = $2",
+                                    key,
+                                    rkey
+                                )
+                                .execute(&state.pool)
+                                .await?;
+                                tracing::info!(curator = %curator.did, %rkey, %key, bytes, "master taken into the vault");
+                                Ok(())
+                            }
+                            Err(err) => Err(err),
+                        }
+                    }
+                    Err(err) => Err(err),
+                };
+                tokio::fs::remove_file(&tmp).await.ok();
+                result?;
+                return Ok(Redirect::to("/admin/masters").into_response());
+            }
+            _ => {}
+        }
+    }
+    Ok(bad_request("The upload arrived without a file."))
+}
+
+/// Stream one multipart field to disk, enforcing the size cap. Returns the
+/// byte count.
+async fn spool_to_file(
+    field: &mut axum::extract::multipart::Field<'_>,
+    path: &std::path::Path,
+) -> anyhow::Result<u64> {
+    let mut out = tokio::fs::File::create(path).await?;
+    let mut written: u64 = 0;
+    while let Some(chunk) = field.chunk().await.map_err(anyhow::Error::from)? {
+        written += chunk.len() as u64;
+        anyhow::ensure!(
+            written <= MAX_MASTER_BYTES,
+            "master exceeds {MAX_MASTER_BYTES} bytes"
+        );
+        out.write_all(&chunk).await?;
+    }
+    out.flush().await?;
+    Ok(written)
+}
+
+fn bad_request(msg: &'static str) -> Response {
+    (axum::http::StatusCode::BAD_REQUEST, msg).into_response()
 }
 
 #[derive(serde::Deserialize)]

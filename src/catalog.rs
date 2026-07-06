@@ -95,6 +95,12 @@ pub struct Specimen {
     /// pulled locally — such specimens are served from the Bluesky CDN even
     /// in local media mode.
     pub file: Option<String>,
+    /// Vault key (pds/…) of the PDS original synced to the Bunny CDN;
+    /// `None` until pull-media has mirrored it.
+    pub pds_key: Option<String>,
+    /// Vault key (masters/…) of the render-node master the artist uploaded;
+    /// beats the PDS copy wherever full quality is served.
+    pub master_key: Option<String>,
     pub caption: String,
     /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
@@ -385,6 +391,8 @@ mod tests {
             cid: "bafytest".into(),
             kind: MediaKind::Video,
             file: None,
+            pds_key: None,
+            master_key: None,
             caption: caption.into(),
             date: "2026-06-04".into(),
             url: "https://example.test".into(),

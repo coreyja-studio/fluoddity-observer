@@ -93,14 +93,28 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
 /// A specimen's media: a looping video, or the still image(s) of an image
 /// post. Clicking either opens the full-bleed behold view.
 fn specimen_media(ctx: &Ctx, s: &Specimen) -> Markup {
+    specimen_media_tiered(ctx, s, false)
+}
+
+/// `full` swaps the grid-friendly source for the vault's archival copy —
+/// the solo specimen page earns the full-rate file up front; a grid of a
+/// dozen autoplaying loops stays on the Bluesky CDN and only behold
+/// (via data-full) trades up.
+fn specimen_media_tiered(ctx: &Ctx, s: &Specimen, full: bool) -> Markup {
     match s.kind {
         MediaKind::Video => {
             let (src, hls, poster) = ctx.video_sources(s);
+            let full_src = ctx.full_video_src(s);
+            let (src, hls) = match (full, full_src.clone()) {
+                (true, Some(full_src)) => (full_src, None),
+                _ => (src, hls),
+            };
             html! {
                 video .specimen-video
                     src=(src)
                     poster=(poster)
                     data-hls=[hls]
+                    data-full=[full_src]
                     muted loop playsinline autoplay
                     preload="metadata"
                     aria-label=(s.label()) {}
@@ -365,7 +379,7 @@ pub fn specimen(
                 (page_header(ctx, plate))
 
                 figure .specimen .specimen-solo {
-                    (specimen_media(ctx, s))
+                    (specimen_media_tiered(ctx, s, true))
                     figcaption {
                         p .fig-name-big { (s.label()) }
                         p .fig-date { "collected " (pretty_date(&s.date)) }
@@ -736,6 +750,12 @@ pub fn ambient_entry(ctx: &Ctx, s: &Specimen) -> AmbientEntry {
     match s.kind {
         MediaKind::Video => {
             let (src, hls, poster) = ctx.video_sources(s);
+            // The exhibition shows one loop at a time, full-bleed — serve
+            // the vault's archival copy when we hold one.
+            let (src, hls) = match ctx.full_video_src(s) {
+                Some(full) => (full, None),
+                None => (src, hls),
+            };
             AmbientEntry {
                 kind: "video",
                 src,

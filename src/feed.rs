@@ -126,6 +126,8 @@ mod tests {
                 cid: "bafy".into(),
                 kind: MediaKind::Video,
                 file: None,
+                pds_key: None,
+                master_key: None,
                 caption: format!("Sighting <#{i}> & counting"),
                 date: format!("2026-06-{:02}", (i % 28) + 1),
                 url: "https://bsky.app/x".into(),

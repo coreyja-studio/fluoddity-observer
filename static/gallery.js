@@ -54,7 +54,12 @@
   function openBehold(source) {
     beholdImage.removeAttribute("src");
     behold.classList.remove("still");
-    if (source.dataset.hls) {
+    // Full-bleed earns the archival copy: grids loop the CDN re-encode,
+    // but behold trades up to the vault original when one exists.
+    if (source.dataset.full) {
+      delete beholdVideo.dataset.hls;
+      beholdVideo.src = source.dataset.full;
+    } else if (source.dataset.hls) {
       beholdVideo.removeAttribute("src");
       beholdVideo.dataset.hls = source.dataset.hls;
       if (beholdVideo.canPlayType("application/vnd.apple.mpegurl")) {
