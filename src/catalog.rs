@@ -320,6 +320,23 @@ pub fn extract_hashtags(text: &str) -> Vec<String> {
     tags
 }
 
+/// Naturalist's note for the time between two sightings, for lineage
+/// charts: "later that day", "the next day", "12 days pass". Empty when
+/// either date fails to parse.
+pub fn days_between(earlier: &str, later: &str) -> String {
+    let (Ok(a), Ok(b)) = (
+        chrono::NaiveDate::parse_from_str(earlier, "%Y-%m-%d"),
+        chrono::NaiveDate::parse_from_str(later, "%Y-%m-%d"),
+    ) else {
+        return String::new();
+    };
+    match (b - a).num_days() {
+        i64::MIN..=0 => "later that day".to_string(),
+        1 => "the next day".to_string(),
+        n => format!("{n} days pass"),
+    }
+}
+
 pub fn roman(n: usize) -> &'static str {
     const NUMERALS: [&str; 12] = [
         "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
@@ -383,6 +400,14 @@ mod tests {
         assert!(extract_hashtags("no tags here").is_empty());
         assert_eq!(slugify("The Cortex Line"), "the-cortex-line");
         assert_eq!(tag_display("the-cortex-line"), "the cortex line");
+    }
+
+    #[test]
+    fn day_gaps_read_like_field_notes() {
+        assert_eq!(days_between("2026-06-04", "2026-06-04"), "later that day");
+        assert_eq!(days_between("2026-06-04", "2026-06-05"), "the next day");
+        assert_eq!(days_between("2026-06-04", "2026-06-16"), "12 days pass");
+        assert_eq!(days_between("junk", "2026-06-16"), "");
     }
 
     #[test]

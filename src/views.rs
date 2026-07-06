@@ -647,16 +647,41 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
                         }
                     }
 
-                    div .plate-grid {
-                        @for (i, s) in members.iter().enumerate() {
-                            figure .specimen {
-                                (specimen_media(ctx, s))
-                                figcaption {
-                                    p .fig-no { "Fig. " (i + 1) }
-                                    p .fig-name {
-                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                    @if kind == "lineage" {
+                        // The evolution chart: one descent line, oldest at
+                        // the top, the time between sightings written on
+                        // the stem the way a field notebook would.
+                        div .lineage-chart {
+                            @for (i, s) in members.iter().enumerate() {
+                                @if i > 0 {
+                                    p .lineage-gap {
+                                        (crate::catalog::days_between(&members[i - 1].date, &s.date))
                                     }
-                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                }
+                                figure .specimen .lineage-node {
+                                    (specimen_media(ctx, s))
+                                    figcaption {
+                                        p .fig-no { "Form " (i + 1) }
+                                        p .fig-name {
+                                            a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                        }
+                                        p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    }
+                                }
+                            }
+                        }
+                    } @else {
+                        div .plate-grid {
+                            @for (i, s) in members.iter().enumerate() {
+                                figure .specimen {
+                                    (specimen_media(ctx, s))
+                                    figcaption {
+                                        p .fig-no { "Fig. " (i + 1) }
+                                        p .fig-name {
+                                            a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                        }
+                                        p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    }
                                 }
                             }
                         }

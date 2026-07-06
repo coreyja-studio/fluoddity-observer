@@ -350,6 +350,49 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   margin: 0 0 1.6rem;
 }
 
+/* ---- lineage evolution chart ---- */
+
+.lineage-chart {
+  position: relative;
+  max-width: 30rem;
+  margin: 2.2rem auto 0;
+}
+
+/* The descent line: one stem running behind the whole chart. */
+.lineage-chart::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  border-left: 1px solid var(--rule);
+}
+
+.lineage-node { position: relative; margin: 0 0 1.1rem; }
+
+.lineage-gap {
+  position: relative;
+  text-align: center;
+  font-family: 'IM Fell English', serif;
+  font-style: italic;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  background: var(--paper);
+  width: fit-content;
+  margin: 0 auto 1.1rem;
+  padding: 0 0.7rem;
+}
+
+.lineage-node figcaption {
+  position: relative;
+  background: var(--paper);
+  width: fit-content;
+  max-width: 90%;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0 0.8rem 0.5rem;
+}
+
 .specimen figcaption { margin-top: 0.85rem; }
 
 .fig-no {
