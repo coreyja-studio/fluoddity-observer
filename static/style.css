@@ -304,6 +304,52 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
 .specimen-stills { display: grid; gap: 0.9rem; }
 .specimen-stills.multi { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 
+/* ---- the index (search) ---- */
+
+.index-search {
+  display: flex;
+  gap: 0.6rem;
+  max-width: 34rem;
+  margin: 1.4rem auto 1.8rem;
+}
+
+.index-search input[type="search"] {
+  flex: 1;
+  font-family: 'EB Garamond', serif;
+  font-size: 1.05rem;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--rule);
+  padding: 0.35rem 0.2rem;
+  outline: none;
+}
+
+.index-search input[type="search"]:focus { border-bottom-color: var(--accent); }
+
+.index-search input[type="search"]::placeholder { color: var(--ink-soft); opacity: 0.7; font-style: italic; }
+
+.index-search button {
+  font-family: 'IM Fell English', serif;
+  font-size: 0.82rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--rule);
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
+.index-search button:hover { border-color: var(--accent); }
+
+.index-count {
+  text-align: center;
+  font-style: italic;
+  color: var(--ink-soft);
+  margin: 0 0 1.6rem;
+}
+
 .specimen figcaption { margin-top: 0.85rem; }
 
 .fig-no {

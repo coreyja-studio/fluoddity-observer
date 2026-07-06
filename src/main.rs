@@ -369,6 +369,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/archive", get(archive))
+        .route("/search", get(search))
         .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/tag/{tag}", get(tag_page))
@@ -443,6 +444,19 @@ async fn thread_room(
 
 async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
     Ok(views::archive(&state.ctx().await?))
+}
+
+#[derive(serde::Deserialize)]
+struct SearchParams {
+    #[serde(default)]
+    q: String,
+}
+
+async fn search(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<SearchParams>,
+) -> Result<maud::Markup, AppError> {
+    Ok(views::search(&state.ctx().await?, params.q.trim()))
 }
 
 #[derive(serde::Deserialize)]

@@ -168,6 +168,33 @@ impl Catalog {
             .map(|t| t.kind.as_str())
     }
 
+    /// Consult the index: every whitespace-separated term must appear in a
+    /// specimen's caption, tags, or image alt text (case-insensitive).
+    /// Newest sightings first.
+    pub fn search(&self, query: &str) -> Vec<&Specimen> {
+        let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+        if terms.is_empty() {
+            return Vec::new();
+        }
+        self.archive
+            .all()
+            .iter()
+            .rev()
+            .filter(|s| {
+                let mut haystack = s.caption.to_lowercase();
+                for tag in self.tags_of(&s.rkey) {
+                    haystack.push(' ');
+                    haystack.push_str(&tag_display(&tag.tag));
+                }
+                for img in &s.images {
+                    haystack.push(' ');
+                    haystack.push_str(&img.alt.to_lowercase());
+                }
+                terms.iter().all(|t| haystack.contains(t.as_str()))
+            })
+            .collect()
+    }
+
     pub fn notes_of(&self, rkey: &str) -> &[MarginNote] {
         self.editorial
             .margin_notes
@@ -356,6 +383,60 @@ mod tests {
         assert!(extract_hashtags("no tags here").is_empty());
         assert_eq!(slugify("The Cortex Line"), "the-cortex-line");
         assert_eq!(tag_display("the-cortex-line"), "the cortex line");
+    }
+
+    #[test]
+    fn search_matches_captions_tags_and_alt() {
+        let mut jelly = specimen("Bowler hat jellyfish parade");
+        jelly.rkey = "3mjelly".into();
+        jelly.date = "2026-06-01".into();
+        let mut koosh = specimen("Untitled overnight run");
+        koosh.rkey = "3mkoosh".into();
+        koosh.date = "2026-06-10".into();
+        koosh.kind = MediaKind::Image;
+        koosh.images = vec![SpecimenImage {
+            cid: "bafy-k".into(),
+            file: None,
+            alt: "a koosh mid-bloom".into(),
+        }];
+        let mut tags = HashMap::new();
+        tags.insert(
+            "3mjelly".to_string(),
+            vec![Tag {
+                tag: "the-jelly-line".into(),
+                kind: "lineage".into(),
+                source: "curator".into(),
+            }],
+        );
+        let catalog = Catalog {
+            archive: Archive::new(vec![jelly, koosh]),
+            editorial: Editorial {
+                artist: Artist {
+                    handle: "a".into(),
+                    did: "did:plc:a".into(),
+                    name: "A".into(),
+                },
+                origin: Origin {
+                    handle: "o".into(),
+                    text: "wish".into(),
+                    url: "u".into(),
+                },
+                tags,
+                margin_notes: HashMap::new(),
+            },
+        };
+
+        // Caption terms AND together, case-insensitive.
+        let hits = catalog.search("BOWLER jellyfish");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rkey, "3mjelly");
+        // Tag words match through tag_display (dashes become spaces).
+        assert_eq!(catalog.search("jelly line").len(), 1);
+        // Image alt text is searchable.
+        assert_eq!(catalog.search("koosh bloom")[0].rkey, "3mkoosh");
+        // Newest first, empty query finds nothing.
+        assert_eq!(catalog.search("run parade").len(), 0);
+        assert!(catalog.search("   ").is_empty());
     }
 
     #[test]

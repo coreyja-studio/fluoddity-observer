@@ -227,6 +227,8 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                     p .latest-caption { "the six most recent sightings" }
                     p .archive-link {
                         a href="/archive" { "browse all " (catalog.archive.len()) " specimens →" }
+                        " · "
+                        a href="/search" { "consult the index" }
                     }
                     p .ambient-link {
                         a href="/ambient" { "or enter ambient mode — lights off, let the collection play ✦" }
@@ -271,6 +273,7 @@ pub fn archive(ctx: &Ctx) -> Markup {
                         " specimens, chronological. Every one has a permanent page — "
                         "the rooms are curation; this is the record."
                     }
+                    (index_search_form(""))
 
                     @let flat = ctx.catalog.tagged("2d").len();
                     @let deep = ctx.catalog.tagged("3d").len();
@@ -533,6 +536,72 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                     a href=(format!("/ambient?room={}/{}", room.author_handle, room.rkey)) {
                         "ambient this room ✦"
                     }
+                    " · "
+                    a href="/" { "← back to contents" }
+                }
+            }
+        },
+    )
+}
+
+/// The index consultation form, shared by the pages that offer it.
+fn index_search_form(query: &str) -> Markup {
+    html! {
+        form .index-search action="/search" method="get" {
+            input type="search" name="q" value=(query)
+                placeholder="consult the index — jellyfish, koosh, living metal…"
+                aria-label="search the archive";
+            button type="submit" { "consult" }
+        }
+    }
+}
+
+pub fn search(ctx: &Ctx, query: &str) -> Markup {
+    let hits = ctx.catalog.search(query);
+    let mut meta = PageMeta::new("The Index — Fluoddity", "/search");
+    meta.description =
+        "Consult the index — search every caption, tag, and note in the expedition record."
+            .to_string();
+    base(
+        meta,
+        html! {
+            main .sheet {
+                (page_header(ctx, "The Index"))
+
+                section {
+                    h2 .room-label { "Consult the Index" }
+                    p .room-sublabel {
+                        "every caption is searchable — the artist's words are half the record"
+                    }
+                    (index_search_form(query))
+
+                    @if !query.trim().is_empty() {
+                        @if hits.is_empty() {
+                            p .room-sublabel .index-no-hits {
+                                "no specimen answers to “" (query) "” — "
+                                "the survey's vocabulary is the artist's own; try his words"
+                            }
+                        } @else {
+                            p .index-count {
+                                (hits.len())
+                                @if hits.len() == 1 { " specimen answers" } @else { " specimens answer" }
+                                " to “" (query) "”"
+                            }
+                            div .archive-grid {
+                                @for s in &hits {
+                                    a .archive-item href=(format!("/specimen/{}", s.rkey)) {
+                                        img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
+                                        span .archive-label { (s.label()) }
+                                        span .archive-date { (pretty_date(&s.date)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href="/archive" { "← the full record" }
                     " · "
                     a href="/" { "← back to contents" }
                 }
