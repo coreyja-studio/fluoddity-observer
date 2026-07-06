@@ -78,7 +78,7 @@ impl MediaKind {
 }
 
 /// One image of an image specimen (a post carries up to four).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpecimenImage {
     pub cid: String,
     /// Path relative to the media dir; `None` when not pulled locally.
@@ -86,7 +86,7 @@ pub struct SpecimenImage {
     pub alt: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Specimen {
     pub rkey: String,
     pub cid: String,
@@ -141,6 +141,17 @@ impl Archive {
 
     pub fn is_empty(&self) -> bool {
         self.specimens.is_empty()
+    }
+
+    /// The chronological neighbors of a specimen: (previous, next).
+    pub fn neighbors(&self, rkey: &str) -> (Option<&Specimen>, Option<&Specimen>) {
+        let Some(&i) = self.by_rkey.get(rkey) else {
+            return (None, None);
+        };
+        (
+            i.checked_sub(1).map(|p| &self.specimens[p]),
+            self.specimens.get(i + 1),
+        )
     }
 }
 
@@ -495,5 +506,13 @@ mod tests {
         let archive = Archive::new(vec![a, b]);
         assert_eq!(archive.all()[0].rkey, "a-earlier");
         assert_eq!(archive.get("b-later").unwrap().date, "2026-06-05");
+
+        let (prev, next) = archive.neighbors("a-earlier");
+        assert!(prev.is_none());
+        assert_eq!(next.unwrap().rkey, "b-later");
+        let (prev, next) = archive.neighbors("b-later");
+        assert_eq!(prev.unwrap().rkey, "a-earlier");
+        assert!(next.is_none());
+        assert_eq!(archive.neighbors("missing"), (None, None));
     }
 }

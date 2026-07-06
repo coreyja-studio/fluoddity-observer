@@ -1,12 +1,14 @@
 // Ambient mode: the archive as a slow, endless exhibition. Two stacked
-// videos crossfade; each specimen plays its loop a couple of times, the
-// label breathes in and out, and the site disappears entirely.
+// layers crossfade; a video plays its loop a couple of times, a still
+// holds like a projector slide, the label breathes in and out, and the
+// site disappears entirely.
 
 (function () {
   "use strict";
 
   var MIN_DWELL_MS = 14000; // replay short loops until at least this long
   var MAX_DWELL_MS = 45000; // hard cap for long clips or stalled playback
+  var STILL_DWELL_MS = 12000; // how long a projector slide holds
   var FADE_MS = 1600;
 
   var data = document.getElementById("ambient-data");
@@ -24,8 +26,8 @@
 
   var stage = document.getElementById("ambient-stage");
   var label = document.getElementById("ambient-label");
-  var videos = stage.querySelectorAll("video");
-  var front = 0; // index into `videos` of the visible layer
+  var layers = stage.querySelectorAll(".layer");
+  var front = 0; // index into `layers` of the visible layer
   var cursor = 0; // index into `playlist`
 
   function attachHls(video, hlsUrl) {
@@ -54,14 +56,27 @@
     video.load();
   }
 
+  function reveal(incomingLayer, outgoingLayer, entry) {
+    incomingLayer.classList.add("visible");
+    outgoingLayer.classList.remove("visible");
+    front = 1 - front;
+    label.textContent = entry.label;
+    label.classList.remove("breathe");
+    void label.offsetWidth; // restart the animation
+    label.classList.add("breathe");
+    window.setTimeout(function () {
+      outgoingLayer.querySelector("video").pause();
+    }, FADE_MS);
+  }
+
   function next() {
     var entry = playlist[cursor % playlist.length];
     cursor += 1;
-    var incoming = videos[1 - front];
-    var outgoing = videos[front];
-    load(incoming, entry);
+    var incomingLayer = layers[1 - front];
+    var outgoingLayer = layers[front];
+    var incoming = incomingLayer.querySelector("video");
+    var still = incomingLayer.querySelector("img");
 
-    var started = null;
     var advanced = false;
     function advance() {
       if (advanced) return;
@@ -69,6 +84,33 @@
       incoming.removeEventListener("ended", onEnded);
       next();
     }
+
+    if (entry.kind === "image") {
+      // A projector slide: hold, then move along.
+      incomingLayer.classList.add("still");
+      incoming.removeAttribute("src");
+      still.src = entry.src;
+      var shown = false;
+      function showStill() {
+        if (shown) return;
+        shown = true;
+        reveal(incomingLayer, outgoingLayer, entry);
+        window.setTimeout(advance, STILL_DWELL_MS);
+      }
+      still.onload = showStill;
+      // Broken image or cache race — don't stall the exhibition.
+      still.onerror = function () {
+        window.setTimeout(advance, 1500);
+      };
+      if (still.complete && still.naturalWidth > 0) showStill();
+      return;
+    }
+
+    incomingLayer.classList.remove("still");
+    still.removeAttribute("src");
+    load(incoming, entry);
+
+    var started = null;
     function onEnded() {
       var elapsed = started ? Date.now() - started : MAX_DWELL_MS;
       if (elapsed >= MIN_DWELL_MS) {
@@ -83,16 +125,7 @@
       .then(function () {
         started = Date.now();
         // Reveal only once playback is truly rolling.
-        incoming.classList.add("visible");
-        outgoing.classList.remove("visible");
-        front = 1 - front;
-        label.textContent = entry.label;
-        label.classList.remove("breathe");
-        void label.offsetWidth; // restart the animation
-        label.classList.add("breathe");
-        window.setTimeout(function () {
-          outgoing.pause();
-        }, FADE_MS);
+        reveal(incomingLayer, outgoingLayer, entry);
         window.setTimeout(advance, MAX_DWELL_MS);
       })
       .catch(function () {
