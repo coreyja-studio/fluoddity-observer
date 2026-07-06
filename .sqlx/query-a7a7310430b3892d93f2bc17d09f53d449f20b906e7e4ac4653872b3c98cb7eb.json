@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rkey, position, cid FROM specimen_images\n         WHERE file IS NULL ORDER BY rkey, position",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "position",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "cid",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a7a7310430b3892d93f2bc17d09f53d449f20b906e7e4ac4653872b3c98cb7eb"
+}

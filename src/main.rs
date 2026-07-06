@@ -1,5 +1,6 @@
 mod admin;
 mod auth;
+mod backup;
 mod bot;
 mod catalog;
 mod cron;
@@ -219,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
+        Some("pull-media") => pull_media(pool).await,
         Some("refresh-notes") => refresh_notes(pool).await,
         Some("classify-dimensions") => classify_dimensions(pool).await,
         Some("bot-once") => bot_once(pool).await,
@@ -228,7 +230,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -240,6 +242,25 @@ async fn ingest_once(pool: PgPool) -> anyhow::Result<()> {
         .build()?;
     let added = ingest::poll_once(&pool, &client).await?;
     tracing::info!(count = added.len(), rkeys = ?added, "ingest-once complete");
+    Ok(())
+}
+
+/// Cold storage: download original blobs the local archive is missing
+/// (live-ingested specimens) from the artist's PDS. Run where the media
+/// dir lives — the Fly machines have no volume.
+async fn pull_media(pool: PgPool) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let stats = backup::pull_media(&pool, &client, &media_dir()).await?;
+    tracing::info!(
+        pulled = stats.pulled,
+        failed = stats.failed,
+        "pull-media complete"
+    );
+    if stats.failed > 0 {
+        anyhow::bail!("{} blob(s) failed to pull — rerun to retry", stats.failed);
+    }
     Ok(())
 }
 

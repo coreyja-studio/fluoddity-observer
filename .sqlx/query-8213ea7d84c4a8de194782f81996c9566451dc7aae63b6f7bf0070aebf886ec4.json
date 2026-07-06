@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE specimens SET file = $1 WHERE rkey = $2 AND file IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8213ea7d84c4a8de194782f81996c9566451dc7aae63b6f7bf0070aebf886ec4"
+}

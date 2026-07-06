@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rkey, cid FROM specimens\n         WHERE kind = 'video' AND file IS NULL ORDER BY collected_on, rkey",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "cid",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "f1b282437b06845abf21ea0bc2929d4e5143790f11683fde3a922a1d9b5b8d07"
+}
