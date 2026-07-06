@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)\n                 VALUES ($1, $2, 'tag', 'post', 'artist-reply')\n                 ON CONFLICT (rkey, tag) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dbdd589cb54250aaac31ae12ab7ba2c13b3cd5864b4c7a8bd850e13e8e94065a"
+}

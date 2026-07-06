@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tag_suggestions (rkey, tag, suggester_did, suggester_handle)\n             VALUES ('3ma', 'medusae', 'did:plc:fan', 'fan.test'),\n                    ('3ma', 'noise', 'did:plc:spam', 'spam.test')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "91380f391609cd86bc68c9654512ed3cf26ff3881eb4fcc66980220d3bc1fd73"
+}

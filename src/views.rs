@@ -410,7 +410,7 @@ pub fn specimen(
 
                 div .tag-row {
                     @for tag in tags {
-                        span .tag-chip {
+                        span .tag-chip title=(tag.provenance()) {
                             a href=(format!("/tag/{}", tag.tag)) {
                                 @if tag.kind == "lineage" { "⟿ " }
                                 (tag_display(&tag.tag))
@@ -422,6 +422,12 @@ pub fn specimen(
                                     button type="submit" .link-button title="remove tag" { "✕" }
                                 }
                             }
+                        }
+                    }
+                    @if curator.is_none() {
+                        span .tag-invite {
+                            a href=(s.url) { "know this form? reply with a #hashtag" }
+                            " — the survey collects suggestions daily"
                         }
                     }
                     @if curator.is_some() {

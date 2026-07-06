@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimen_tags (rkey, tag, kind, source) VALUES ('3ma', 'existing', 'tag', 'post')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "48574bba0157e2ef4a3fa08d34d140cfe31a0256f362d5679c14aa3f14fee48f"
+}

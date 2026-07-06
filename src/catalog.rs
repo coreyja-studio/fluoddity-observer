@@ -27,6 +27,26 @@ pub struct Tag {
     pub tag: String,
     pub kind: String,
     pub source: String,
+    /// Who placed it: a curator DID, a suggester's handle (community), or
+    /// a marker like 'artist-reply' / 'survey-heuristic'.
+    pub added_by: String,
+}
+
+impl Tag {
+    /// Wall-label provenance, shown on the tag chip.
+    pub fn provenance(&self) -> String {
+        match self.source.as_str() {
+            "post" if self.added_by == "artist-reply" => {
+                "the artist's own tag, from a reply".to_string()
+            }
+            "post" => "the artist's own tag".to_string(),
+            "community" => format!("suggested by @{}, taken up by the survey", self.added_by),
+            _ if self.added_by == "survey-heuristic" => {
+                "a survey guess — corrections welcome".to_string()
+            }
+            _ => "placed by the survey".to_string(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -431,6 +451,7 @@ mod tests {
                 tag: "the-jelly-line".into(),
                 kind: "lineage".into(),
                 source: "curator".into(),
+                added_by: "".into(),
             }],
         );
         let catalog = Catalog {

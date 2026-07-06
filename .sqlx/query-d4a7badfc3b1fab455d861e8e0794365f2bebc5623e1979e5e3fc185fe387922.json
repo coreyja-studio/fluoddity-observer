@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT rkey, tag, kind, source FROM specimen_tags ORDER BY rkey, tag",
+  "query": "SELECT rkey, tag, kind, source, added_by FROM specimen_tags ORDER BY rkey, tag",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "source",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "added_by",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -31,8 +36,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "b5520e3a50db2890c11aedeefc1af1a112a77932054fa8af8be72a0de3732c21"
+  "hash": "d4a7badfc3b1fab455d861e8e0794365f2bebc5623e1979e5e3fc185fe387922"
 }

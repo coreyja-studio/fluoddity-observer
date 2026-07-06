@@ -56,14 +56,17 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     .collect();
 
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
-    for row in sqlx::query!("SELECT rkey, tag, kind, source FROM specimen_tags ORDER BY rkey, tag")
-        .fetch_all(pool)
-        .await?
+    for row in sqlx::query!(
+        "SELECT rkey, tag, kind, source, added_by FROM specimen_tags ORDER BY rkey, tag"
+    )
+    .fetch_all(pool)
+    .await?
     {
         tags.entry(row.rkey).or_default().push(Tag {
             tag: row.tag,
             kind: row.kind,
             source: row.source,
+            added_by: row.added_by,
         });
     }
 
