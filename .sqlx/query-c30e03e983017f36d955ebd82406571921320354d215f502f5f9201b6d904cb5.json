@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)\n                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (rkey) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c30e03e983017f36d955ebd82406571921320354d215f502f5f9201b6d904cb5"
+}

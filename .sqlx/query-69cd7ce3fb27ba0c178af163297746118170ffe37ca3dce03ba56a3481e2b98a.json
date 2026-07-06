@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE specimen_images SET file = $1 WHERE rkey = $2 AND position = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "69cd7ce3fb27ba0c178af163297746118170ffe37ca3dce03ba56a3481e2b98a"
+}

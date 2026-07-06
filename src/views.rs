@@ -3,7 +3,7 @@ use maud::{DOCTYPE, Markup, html};
 use crate::{
     Ctx, HungRoom,
     auth::Curator,
-    catalog::{Specimen, pretty_date, pretty_month, roman, tag_display},
+    catalog::{MediaKind, Specimen, pretty_date, pretty_month, roman, tag_display},
     threads::ThreadRoom,
 };
 
@@ -33,12 +33,17 @@ impl PageMeta {
     }
 }
 
-/// Absolute thumbnail for a specimen, for OG cards.
+/// Absolute thumbnail for a specimen, for OG cards. Always a CDN URL —
+/// cards must resolve from anywhere, whatever the media mode.
 fn og_thumb(ctx: &Ctx, s: &Specimen) -> String {
-    format!(
-        "https://video.bsky.app/watch/{}/{}/thumbnail.jpg",
-        ctx.catalog.editorial.artist.did, s.cid
-    )
+    let did = &ctx.catalog.editorial.artist.did;
+    match s.kind {
+        MediaKind::Video => format!("https://video.bsky.app/watch/{did}/{}/thumbnail.jpg", s.cid),
+        MediaKind::Image => format!(
+            "https://cdn.bsky.app/img/feed_fullsize/plain/{did}/{}@jpeg",
+            s.cid
+        ),
+    }
 }
 
 fn base(meta: PageMeta, body: Markup) -> Markup {
@@ -75,6 +80,7 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
                 (body)
                 div #behold aria-hidden="true" {
                     video muted loop playsinline {}
+                    img alt="";
                     p .behold-hint { "tap anywhere to return to the notebook" }
                 }
                 script src="/static/gallery.js" defer {}
@@ -83,17 +89,32 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
     }
 }
 
-/// A looping specimen video. Clicking it opens the full-bleed behold view.
-fn specimen_video(ctx: &Ctx, s: &Specimen) -> Markup {
-    let (src, hls, poster) = ctx.video_sources(s);
-    html! {
-        video .specimen-video
-            src=(src)
-            poster=(poster)
-            data-hls=[hls]
-            muted loop playsinline autoplay
-            preload="metadata"
-            aria-label=(s.label()) {}
+/// A specimen's media: a looping video, or the still image(s) of an image
+/// post. Clicking either opens the full-bleed behold view.
+fn specimen_media(ctx: &Ctx, s: &Specimen) -> Markup {
+    match s.kind {
+        MediaKind::Video => {
+            let (src, hls, poster) = ctx.video_sources(s);
+            html! {
+                video .specimen-video
+                    src=(src)
+                    poster=(poster)
+                    data-hls=[hls]
+                    muted loop playsinline autoplay
+                    preload="metadata"
+                    aria-label=(s.label()) {}
+            }
+        }
+        MediaKind::Image => html! {
+            div .specimen-stills .multi[s.images.len() > 1] {
+                @for img in &s.images {
+                    img .specimen-image
+                        src=(ctx.image_src(img))
+                        alt=(if img.alt.is_empty() { s.label() } else { img.alt.clone() })
+                        loading="lazy";
+                }
+            }
+        },
     }
 }
 
@@ -124,14 +145,6 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
             main .sheet {
                 (page_header(ctx, "Frontispiece"))
 
-                blockquote .origin-note {
-                    p { "“" (editorial.origin.text) "”" }
-                    footer {
-                        "— the wish that opened this guide, "
-                        a href=(editorial.origin.url) { "@" (editorial.origin.handle) }
-                    }
-                }
-
                 section .contents {
                     h2 .room-label { "Contents · The Rooms" }
                     p .room-sublabel {
@@ -146,7 +159,7 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                         a .contents-row href=(format!("/room/{}/{}", hung.row.author_handle, hung.row.rkey)) {
                             div .contents-thumbs {
                                 @for s in hung.room.entries.iter().filter_map(|e| catalog.archive.get(&e.specimen_rkey)).take(3) {
-                                    img src=(ctx.video_sources(s).2) alt="" loading="lazy";
+                                    img src=(ctx.thumb(s)) alt="" loading="lazy";
                                 }
                             }
                             div .contents-text {
@@ -207,13 +220,15 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                     div .latest-strip {
                         @for s in catalog.archive.all().iter().rev().take(6) {
                             a .latest-item href=(format!("/specimen/{}", s.rkey)) title=(s.label()) {
-                                img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
+                                img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
                             }
                         }
                     }
                     p .latest-caption { "the six most recent sightings" }
                     p .archive-link {
                         a href="/archive" { "browse all " (catalog.archive.len()) " specimens →" }
+                        " · "
+                        a href="/search" { "consult the index" }
                     }
                     p .ambient-link {
                         a href="/ambient" { "or enter ambient mode — lights off, let the collection play ✦" }
@@ -221,7 +236,7 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                 }
 
                 footer .colophon-link {
-                    a href="/colophon" { "colophon — why this guide exists" }
+                    a href="/colophon" { "colophon — why this guide exists, and whose wish began it" }
                 }
             }
         },
@@ -258,6 +273,7 @@ pub fn archive(ctx: &Ctx) -> Markup {
                         " specimens, chronological. Every one has a permanent page — "
                         "the rooms are curation; this is the record."
                     }
+                    (index_search_form(""))
 
                     @let flat = ctx.catalog.tagged("2d").len();
                     @let deep = ctx.catalog.tagged("3d").len();
@@ -275,7 +291,7 @@ pub fn archive(ctx: &Ctx) -> Markup {
                         div .archive-grid {
                             @for s in list {
                                 a .archive-item href=(format!("/specimen/{}", s.rkey)) {
-                                    img src=(ctx.video_sources(s).2) alt=(s.label()) loading="lazy";
+                                    img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
                                     span .archive-label { (s.label()) }
                                     span .archive-date { (pretty_date(&s.date)) }
                                 }
@@ -305,7 +321,7 @@ fn lineage_strip(ctx: &Ctx, tag: &str, current_rkey: &str) -> Markup {
                     a .family-member
                         .current[member.rkey == current_rkey]
                         href=(format!("/specimen/{}", member.rkey)) {
-                        img src=(ctx.video_sources(member).2) alt=(member.label()) loading="lazy";
+                        img src=(ctx.thumb(member)) alt=(member.label()) loading="lazy";
                         span { (pretty_date(&member.date)) }
                     }
                 }
@@ -344,7 +360,7 @@ pub fn specimen(
                 (page_header(ctx, plate))
 
                 figure .specimen .specimen-solo {
-                    (specimen_video(ctx, s))
+                    (specimen_media(ctx, s))
                     figcaption {
                         p .fig-name-big { (s.label()) }
                         p .fig-date { "collected " (pretty_date(&s.date)) }
@@ -488,7 +504,7 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                         {
                             @let (entry, s) = entry;
                             figure .specimen .thread-entry {
-                                (specimen_video(ctx, s))
+                                (specimen_media(ctx, s))
                                 figcaption {
                                     p .fig-no { "Fig. " (i + 1) }
                                     @if !entry.note.trim().is_empty() {
@@ -520,6 +536,72 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
                     a href=(format!("/ambient?room={}/{}", room.author_handle, room.rkey)) {
                         "ambient this room ✦"
                     }
+                    " · "
+                    a href="/" { "← back to contents" }
+                }
+            }
+        },
+    )
+}
+
+/// The index consultation form, shared by the pages that offer it.
+fn index_search_form(query: &str) -> Markup {
+    html! {
+        form .index-search action="/search" method="get" {
+            input type="search" name="q" value=(query)
+                placeholder="consult the index — jellyfish, koosh, living metal…"
+                aria-label="search the archive";
+            button type="submit" { "consult" }
+        }
+    }
+}
+
+pub fn search(ctx: &Ctx, query: &str) -> Markup {
+    let hits = ctx.catalog.search(query);
+    let mut meta = PageMeta::new("The Index — Fluoddity", "/search");
+    meta.description =
+        "Consult the index — search every caption, tag, and note in the expedition record."
+            .to_string();
+    base(
+        meta,
+        html! {
+            main .sheet {
+                (page_header(ctx, "The Index"))
+
+                section {
+                    h2 .room-label { "Consult the Index" }
+                    p .room-sublabel {
+                        "every caption is searchable — the artist's words are half the record"
+                    }
+                    (index_search_form(query))
+
+                    @if !query.trim().is_empty() {
+                        @if hits.is_empty() {
+                            p .room-sublabel .index-no-hits {
+                                "no specimen answers to “" (query) "” — "
+                                "the survey's vocabulary is the artist's own; try his words"
+                            }
+                        } @else {
+                            p .index-count {
+                                (hits.len())
+                                @if hits.len() == 1 { " specimen answers" } @else { " specimens answer" }
+                                " to “" (query) "”"
+                            }
+                            div .archive-grid {
+                                @for s in &hits {
+                                    a .archive-item href=(format!("/specimen/{}", s.rkey)) {
+                                        img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
+                                        span .archive-label { (s.label()) }
+                                        span .archive-date { (pretty_date(&s.date)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                nav .room-nav {
+                    a href="/archive" { "← the full record" }
                     " · "
                     a href="/" { "← back to contents" }
                 }
@@ -565,16 +647,41 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
                         }
                     }
 
-                    div .plate-grid {
-                        @for (i, s) in members.iter().enumerate() {
-                            figure .specimen {
-                                (specimen_video(ctx, s))
-                                figcaption {
-                                    p .fig-no { "Fig. " (i + 1) }
-                                    p .fig-name {
-                                        a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                    @if kind == "lineage" {
+                        // The evolution chart: one descent line, oldest at
+                        // the top, the time between sightings written on
+                        // the stem the way a field notebook would.
+                        div .lineage-chart {
+                            @for (i, s) in members.iter().enumerate() {
+                                @if i > 0 {
+                                    p .lineage-gap {
+                                        (crate::catalog::days_between(&members[i - 1].date, &s.date))
                                     }
-                                    p .fig-date { "collected " (pretty_date(&s.date)) }
+                                }
+                                figure .specimen .lineage-node {
+                                    (specimen_media(ctx, s))
+                                    figcaption {
+                                        p .fig-no { "Form " (i + 1) }
+                                        p .fig-name {
+                                            a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                        }
+                                        p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    }
+                                }
+                            }
+                        }
+                    } @else {
+                        div .plate-grid {
+                            @for (i, s) in members.iter().enumerate() {
+                                figure .specimen {
+                                    (specimen_media(ctx, s))
+                                    figcaption {
+                                        p .fig-no { "Fig. " (i + 1) }
+                                        p .fig-name {
+                                            a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                        }
+                                        p .fig-date { "collected " (pretty_date(&s.date)) }
+                                    }
                                 }
                             }
                         }

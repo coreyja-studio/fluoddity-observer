@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use anyhow::Context;
 use sqlx::PgPool;
 
-use crate::catalog::{Archive, Artist, Catalog, Editorial, MarginNote, Origin, Specimen, Tag};
+use crate::catalog::{
+    Archive, Artist, Catalog, Editorial, MarginNote, MediaKind, Origin, Specimen, SpecimenImage,
+    Tag,
+};
 
 /// Load the full catalog (archive + editorial layer) from the database.
 ///
@@ -19,8 +22,21 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     .await
     .context("gallery_meta is empty — run `paperclips-gallery import` to seed the database")?;
 
+    let mut images: HashMap<String, Vec<SpecimenImage>> = HashMap::new();
+    for row in
+        sqlx::query!("SELECT rkey, cid, file, alt FROM specimen_images ORDER BY rkey, position")
+            .fetch_all(pool)
+            .await?
+    {
+        images.entry(row.rkey).or_default().push(SpecimenImage {
+            cid: row.cid,
+            file: row.file,
+            alt: row.alt,
+        });
+    }
+
     let specimens = sqlx::query!(
-        "SELECT rkey, cid, file, caption, collected_on, url
+        "SELECT rkey, cid, kind, file, caption, collected_on, url
          FROM specimens
          ORDER BY collected_on, rkey"
     )
@@ -28,8 +44,10 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     .await?
     .into_iter()
     .map(|row| Specimen {
+        images: images.remove(&row.rkey).unwrap_or_default(),
         rkey: row.rkey,
         cid: row.cid,
+        kind: MediaKind::from_db(&row.kind),
         file: row.file,
         caption: row.caption,
         date: row.collected_on.format("%Y-%m-%d").to_string(),
@@ -79,7 +97,8 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     })
 }
 
-/// One row of the archive pull's metadata.jsonl.
+/// One row of the archive pull's metadata.jsonl. Image posts carry one row
+/// per image (same rkey, consecutive), videos exactly one.
 #[derive(serde::Deserialize)]
 struct MetadataRow {
     file: String,
@@ -87,6 +106,8 @@ struct MetadataRow {
     cid: String,
     rkey: String,
     caption: String,
+    #[serde(default)]
+    alt: String,
     #[serde(rename = "createdAt")]
     created_at: String,
     url: String,
@@ -138,29 +159,63 @@ pub async fn import(
 
     let mut tx = pool.begin().await?;
 
+    // One specimen per post: group metadata rows by rkey in file order
+    // (an image post carries one row per image, a video exactly one).
+    let mut posts: Vec<Vec<&MetadataRow>> = Vec::new();
+    let mut post_index: HashMap<&str, usize> = HashMap::new();
+    for row in &rows {
+        match post_index.get(row.rkey.as_str()) {
+            Some(&i) => posts[i].push(row),
+            None => {
+                post_index.insert(&row.rkey, posts.len());
+                posts.push(vec![row]);
+            }
+        }
+    }
+
     let mut specimen_count = 0;
-    for row in rows.iter().filter(|r| r.kind == "video") {
+    for group in &posts {
+        let first = group[0];
         let collected_on = chrono::NaiveDate::parse_from_str(
-            &row.created_at[..10.min(row.created_at.len())],
+            &first.created_at[..10.min(first.created_at.len())],
             "%Y-%m-%d",
         )
-        .with_context(|| format!("bad createdAt for {}", row.rkey))?;
+        .with_context(|| format!("bad createdAt for {}", first.rkey))?;
         sqlx::query!(
-            "INSERT INTO specimens (rkey, cid, file, caption, collected_on, url)
-             VALUES ($1, $2, $3, $4, $5, $6)
+            "INSERT INTO specimens (rkey, cid, kind, file, caption, collected_on, url)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (rkey) DO UPDATE
-             SET cid = EXCLUDED.cid, file = EXCLUDED.file,
+             SET cid = EXCLUDED.cid, kind = EXCLUDED.kind, file = EXCLUDED.file,
                  caption = EXCLUDED.caption, collected_on = EXCLUDED.collected_on,
                  url = EXCLUDED.url",
-            row.rkey,
-            row.cid,
-            row.file,
-            row.caption,
+            first.rkey,
+            first.cid,
+            first.kind,
+            first.file,
+            first.caption,
             collected_on,
-            row.url,
+            first.url,
         )
         .execute(&mut *tx)
         .await?;
+        sqlx::query!("DELETE FROM specimen_images WHERE rkey = $1", first.rkey)
+            .execute(&mut *tx)
+            .await?;
+        if first.kind == "image" {
+            for (i, row) in group.iter().enumerate() {
+                sqlx::query!(
+                    "INSERT INTO specimen_images (rkey, position, cid, file, alt)
+                     VALUES ($1, $2, $3, $4, $5)",
+                    row.rkey,
+                    i as i32,
+                    row.cid,
+                    row.file,
+                    row.alt,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
         specimen_count += 1;
     }
 
@@ -188,13 +243,14 @@ pub async fn import(
 
     // The artist can tag specimens from inside his own posts: #hashtags in
     // captions become post-sourced tags.
-    for row in rows.iter().filter(|r| r.kind == "video") {
-        for tag in crate::catalog::extract_hashtags(&row.caption) {
+    for group in &posts {
+        let first = group[0];
+        for tag in crate::catalog::extract_hashtags(&first.caption) {
             sqlx::query!(
                 "INSERT INTO specimen_tags (rkey, tag, kind, source)
                  VALUES ($1, $2, 'tag', 'post')
                  ON CONFLICT (rkey, tag) DO NOTHING",
-                row.rkey,
+                first.rkey,
                 tag,
             )
             .execute(&mut *tx)
@@ -272,7 +328,9 @@ mod tests {
         let metadata = concat!(
             r#"{"file":"videos/a.mp4","kind":"video","mime":"video/mp4","cid":"bafy-a","rkey":"3ma","caption":"Jellyfish!","alt":"","createdAt":"2026-06-04T12:00:00.000Z","url":"https://bsky.app/profile/x/post/3ma"}"#,
             "\n",
-            r#"{"file":"images/skip.jpg","kind":"image","mime":"image/jpeg","cid":"bafy-img","rkey":"3mimg","caption":"not a video","alt":"","createdAt":"2026-06-05T12:00:00.000Z","url":"https://bsky.app/profile/x/post/3mimg"}"#,
+            r#"{"file":"images/img1.jpg","kind":"image","mime":"image/jpeg","cid":"bafy-img1","rkey":"3mimg","caption":"Two stills","alt":"first still","createdAt":"2026-06-05T12:00:00.000Z","url":"https://bsky.app/profile/x/post/3mimg"}"#,
+            "\n",
+            r#"{"file":"images/img2.jpg","kind":"image","mime":"image/jpeg","cid":"bafy-img2","rkey":"3mimg","caption":"Two stills","alt":"","createdAt":"2026-06-05T12:00:00.000Z","url":"https://bsky.app/profile/x/post/3mimg"}"#,
             "\n",
             r#"{"file":"videos/b.mp4","kind":"video","mime":"video/mp4","cid":"bafy-b","rkey":"3mb","caption":"Party hats","alt":"","createdAt":"2026-06-05T12:00:00.000Z","url":"https://bsky.app/profile/x/post/3mb"}"#,
             "\n",
@@ -301,20 +359,29 @@ mod tests {
         let (meta_path, cat_path) = write_fixtures(&dir);
 
         let stats = import(&pool, &meta_path, &cat_path).await.unwrap();
-        assert_eq!(stats.specimens, 2, "images are skipped");
+        assert_eq!(stats.specimens, 3, "a multi-image post is one specimen");
         assert_eq!(stats.margin_notes, 1);
 
         // Idempotent: importing again must not duplicate anything.
         import(&pool, &meta_path, &cat_path).await.unwrap();
 
         let catalog = load_catalog(&pool).await.unwrap();
-        assert_eq!(catalog.archive.len(), 2);
+        assert_eq!(catalog.archive.len(), 3);
         assert_eq!(catalog.editorial.artist.did, "did:plc:test");
 
         let jelly = catalog.archive.get("3ma").unwrap();
         assert_eq!(jelly.caption, "Jellyfish!");
         assert_eq!(jelly.date, "2026-06-04");
         assert_eq!(jelly.file.as_deref(), Some("videos/a.mp4"));
+        assert_eq!(jelly.kind, MediaKind::Video);
+        assert!(jelly.images.is_empty());
+
+        let stills = catalog.archive.get("3mimg").unwrap();
+        assert_eq!(stills.kind, MediaKind::Image);
+        assert_eq!(stills.cid, "bafy-img1", "first image is the primary cid");
+        assert_eq!(stills.images.len(), 2);
+        assert_eq!(stills.images[0].alt, "first still");
+        assert_eq!(stills.images[1].file.as_deref(), Some("images/img2.jpg"));
         assert_eq!(catalog.notes_of("3ma")[0].text, "Shoggoth found");
         let jelly_tags = catalog.tags_of("3mb");
         assert_eq!(jelly_tags[0].tag, "jelly-line");

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT rkey, cid, file, caption, collected_on, url\n         FROM specimens\n         ORDER BY collected_on, rkey",
+  "query": "SELECT rkey, cid, file, alt FROM specimen_images ORDER BY rkey, position",
   "describe": {
     "columns": [
       {
@@ -20,17 +20,7 @@
       },
       {
         "ordinal": 3,
-        "name": "caption",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 4,
-        "name": "collected_on",
-        "type_info": "Date"
-      },
-      {
-        "ordinal": 5,
-        "name": "url",
+        "name": "alt",
         "type_info": "Text"
       }
     ],
@@ -41,10 +31,8 @@
       false,
       false,
       true,
-      false,
-      false,
       false
     ]
   },
-  "hash": "6e19ae722eb83e4cd856a8a4105a4bb9a9078bf7442bb632938f0f59fbaafd2a"
+  "hash": "a1ff83dae79f657c8b3bd0bbfa487136958e08c90f53cc1ed94e10486deb9c46"
 }

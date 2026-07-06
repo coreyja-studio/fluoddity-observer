@@ -42,10 +42,35 @@ pub struct Artist {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Video,
+    Image,
+}
+
+impl MediaKind {
+    pub fn from_db(kind: &str) -> Self {
+        match kind {
+            "image" => Self::Image,
+            _ => Self::Video,
+        }
+    }
+}
+
+/// One image of an image specimen (a post carries up to four).
+#[derive(Debug, Clone)]
+pub struct SpecimenImage {
+    pub cid: String,
+    /// Path relative to the media dir; `None` when not pulled locally.
+    pub file: Option<String>,
+    pub alt: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Specimen {
     pub rkey: String,
     pub cid: String,
+    pub kind: MediaKind,
     /// Path relative to the media dir; `None` when the blob hasn't been
     /// pulled locally — such specimens are served from the Bluesky CDN even
     /// in local media mode.
@@ -54,6 +79,8 @@ pub struct Specimen {
     /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
     pub url: String,
+    /// All images of an image specimen, in post order; empty for videos.
+    pub images: Vec<SpecimenImage>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -139,6 +166,33 @@ impl Catalog {
             .flatten()
             .find(|t| t.tag == tag)
             .map(|t| t.kind.as_str())
+    }
+
+    /// Consult the index: every whitespace-separated term must appear in a
+    /// specimen's caption, tags, or image alt text (case-insensitive).
+    /// Newest sightings first.
+    pub fn search(&self, query: &str) -> Vec<&Specimen> {
+        let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+        if terms.is_empty() {
+            return Vec::new();
+        }
+        self.archive
+            .all()
+            .iter()
+            .rev()
+            .filter(|s| {
+                let mut haystack = s.caption.to_lowercase();
+                for tag in self.tags_of(&s.rkey) {
+                    haystack.push(' ');
+                    haystack.push_str(&tag_display(&tag.tag));
+                }
+                for img in &s.images {
+                    haystack.push(' ');
+                    haystack.push_str(&img.alt.to_lowercase());
+                }
+                terms.iter().all(|t| haystack.contains(t.as_str()))
+            })
+            .collect()
     }
 
     pub fn notes_of(&self, rkey: &str) -> &[MarginNote] {
@@ -266,6 +320,23 @@ pub fn extract_hashtags(text: &str) -> Vec<String> {
     tags
 }
 
+/// Naturalist's note for the time between two sightings, for lineage
+/// charts: "later that day", "the next day", "12 days pass". Empty when
+/// either date fails to parse.
+pub fn days_between(earlier: &str, later: &str) -> String {
+    let (Ok(a), Ok(b)) = (
+        chrono::NaiveDate::parse_from_str(earlier, "%Y-%m-%d"),
+        chrono::NaiveDate::parse_from_str(later, "%Y-%m-%d"),
+    ) else {
+        return String::new();
+    };
+    match (b - a).num_days() {
+        i64::MIN..=0 => "later that day".to_string(),
+        1 => "the next day".to_string(),
+        n => format!("{n} days pass"),
+    }
+}
+
 pub fn roman(n: usize) -> &'static str {
     const NUMERALS: [&str; 12] = [
         "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII",
@@ -281,10 +352,12 @@ mod tests {
         Specimen {
             rkey: "3mtest".into(),
             cid: "bafytest".into(),
+            kind: MediaKind::Video,
             file: None,
             caption: caption.into(),
             date: "2026-06-04".into(),
             url: "https://example.test".into(),
+            images: Vec::new(),
         }
     }
 
@@ -327,6 +400,68 @@ mod tests {
         assert!(extract_hashtags("no tags here").is_empty());
         assert_eq!(slugify("The Cortex Line"), "the-cortex-line");
         assert_eq!(tag_display("the-cortex-line"), "the cortex line");
+    }
+
+    #[test]
+    fn day_gaps_read_like_field_notes() {
+        assert_eq!(days_between("2026-06-04", "2026-06-04"), "later that day");
+        assert_eq!(days_between("2026-06-04", "2026-06-05"), "the next day");
+        assert_eq!(days_between("2026-06-04", "2026-06-16"), "12 days pass");
+        assert_eq!(days_between("junk", "2026-06-16"), "");
+    }
+
+    #[test]
+    fn search_matches_captions_tags_and_alt() {
+        let mut jelly = specimen("Bowler hat jellyfish parade");
+        jelly.rkey = "3mjelly".into();
+        jelly.date = "2026-06-01".into();
+        let mut koosh = specimen("Untitled overnight run");
+        koosh.rkey = "3mkoosh".into();
+        koosh.date = "2026-06-10".into();
+        koosh.kind = MediaKind::Image;
+        koosh.images = vec![SpecimenImage {
+            cid: "bafy-k".into(),
+            file: None,
+            alt: "a koosh mid-bloom".into(),
+        }];
+        let mut tags = HashMap::new();
+        tags.insert(
+            "3mjelly".to_string(),
+            vec![Tag {
+                tag: "the-jelly-line".into(),
+                kind: "lineage".into(),
+                source: "curator".into(),
+            }],
+        );
+        let catalog = Catalog {
+            archive: Archive::new(vec![jelly, koosh]),
+            editorial: Editorial {
+                artist: Artist {
+                    handle: "a".into(),
+                    did: "did:plc:a".into(),
+                    name: "A".into(),
+                },
+                origin: Origin {
+                    handle: "o".into(),
+                    text: "wish".into(),
+                    url: "u".into(),
+                },
+                tags,
+                margin_notes: HashMap::new(),
+            },
+        };
+
+        // Caption terms AND together, case-insensitive.
+        let hits = catalog.search("BOWLER jellyfish");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].rkey, "3mjelly");
+        // Tag words match through tag_display (dashes become spaces).
+        assert_eq!(catalog.search("jelly line").len(), 1);
+        // Image alt text is searchable.
+        assert_eq!(catalog.search("koosh bloom")[0].rkey, "3mkoosh");
+        // Newest first, empty query finds nothing.
+        assert_eq!(catalog.search("run parade").len(), 0);
+        assert!(catalog.search("   ").is_empty());
     }
 
     #[test]

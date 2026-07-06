@@ -1,5 +1,6 @@
 mod admin;
 mod auth;
+mod backup;
 mod bot;
 mod catalog;
 mod cron;
@@ -83,6 +84,41 @@ impl Ctx {
                     format!("https://video.bsky.app/watch/{did}/{}/playlist.m3u8", s.cid);
                 let poster = format!("https://video.bsky.app/watch/{did}/{}/thumbnail.jpg", s.cid);
                 (playlist.clone(), Some(playlist), poster)
+            }
+        }
+    }
+
+    fn image_cdn(&self, cid: &str, variant: &str) -> String {
+        let did = &self.catalog.editorial.artist.did;
+        format!("https://cdn.bsky.app/img/{variant}/plain/{did}/{cid}@jpeg")
+    }
+
+    /// Full-quality src for one image of an image specimen.
+    pub fn image_src(&self, img: &catalog::SpecimenImage) -> String {
+        let local = match self.media_mode {
+            MediaMode::Local => img.file.as_deref(),
+            MediaMode::Cdn => None,
+        };
+        match local {
+            Some(file) => format!("/media/{file}"),
+            None => self.image_cdn(&img.cid, "feed_fullsize"),
+        }
+    }
+
+    /// Grid thumbnail for any specimen, whatever its kind.
+    pub fn thumb(&self, s: &catalog::Specimen) -> String {
+        match s.kind {
+            catalog::MediaKind::Video => self.video_sources(s).2,
+            catalog::MediaKind::Image => {
+                let local = match self.media_mode {
+                    MediaMode::Local => s.file.as_deref(),
+                    MediaMode::Cdn => None,
+                };
+                match local {
+                    Some(file) => format!("/media/{file}"),
+                    // The first image's cid is mirrored onto the specimen.
+                    None => self.image_cdn(&s.cid, "feed_thumbnail"),
+                }
             }
         }
     }
@@ -184,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
+        Some("pull-media") => pull_media(pool).await,
         Some("refresh-notes") => refresh_notes(pool).await,
         Some("classify-dimensions") => classify_dimensions(pool).await,
         Some("bot-once") => bot_once(pool).await,
@@ -193,7 +230,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -205,6 +242,25 @@ async fn ingest_once(pool: PgPool) -> anyhow::Result<()> {
         .build()?;
     let added = ingest::poll_once(&pool, &client).await?;
     tracing::info!(count = added.len(), rkeys = ?added, "ingest-once complete");
+    Ok(())
+}
+
+/// Cold storage: download original blobs the local archive is missing
+/// (live-ingested specimens) from the artist's PDS. Run where the media
+/// dir lives — the Fly machines have no volume.
+async fn pull_media(pool: PgPool) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let stats = backup::pull_media(&pool, &client, &media_dir()).await?;
+    tracing::info!(
+        pulled = stats.pulled,
+        failed = stats.failed,
+        "pull-media complete"
+    );
+    if stats.failed > 0 {
+        anyhow::bail!("{} blob(s) failed to pull — rerun to retry", stats.failed);
+    }
     Ok(())
 }
 
@@ -334,6 +390,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", get(index))
         .route("/archive", get(archive))
+        .route("/search", get(search))
         .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/tag/{tag}", get(tag_page))
@@ -411,6 +468,19 @@ async fn archive(State(state): State<SharedState>) -> Result<maud::Markup, AppEr
 }
 
 #[derive(serde::Deserialize)]
+struct SearchParams {
+    #[serde(default)]
+    q: String,
+}
+
+async fn search(
+    State(state): State<SharedState>,
+    axum::extract::Query(params): axum::extract::Query<SearchParams>,
+) -> Result<maud::Markup, AppError> {
+    Ok(views::search(&state.ctx().await?, params.q.trim()))
+}
+
+#[derive(serde::Deserialize)]
 struct AmbientParams {
     /// Filter to one tag/lineage.
     tag: Option<String>,
@@ -450,13 +520,15 @@ async fn ambient(
             ctx.catalog.archive.all().iter().collect(),
         )
     };
-    if specimens.is_empty() {
-        return Ok(not_found());
-    }
+    // Ambient is a projection room — stills stay in the notebook.
     let entries: Vec<views::AmbientEntry> = specimens
         .iter()
+        .filter(|s| s.kind == catalog::MediaKind::Video)
         .map(|s| views::ambient_entry(&ctx, s))
         .collect();
+    if entries.is_empty() {
+        return Ok(not_found());
+    }
     Ok(views::ambient(&title, &entries).into_response())
 }
 
