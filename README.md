@@ -19,6 +19,8 @@ rooms where the community's reactions become notes in the margins.
 
 Born from [a wish by @norvid-studies](https://bsky.app/profile/norvid-studies.bsky.social/post/3mpli4fvzns22).
 
+![The frontispiece: contents of the rooms, each plate a live Bluesky thread](docs/screenshots/home.jpg)
+
 ## What's in the guide
 
 - **The Archive** — the complete expedition record, chronological: every
@@ -50,6 +52,18 @@ Born from [a wish by @norvid-studies](https://bsky.app/profile/norvid-studies.bs
 New posts flow in on their own: the guide polls the artist's feed every few
 minutes, so a sighting posted on Bluesky has its permanent page within
 moments, no one lifting a finger.
+
+A specimen page — the loop, the artist's note, real quote-posts in the
+margins, its lineage, and the page-turn to the next sighting:
+
+![A specimen page: Ouroboros tentacle dissolves into bowler hat jellyfish, with margin notes and lineage](docs/screenshots/specimen.jpg)
+
+A lineage, drawn as one descent line with the time between sightings
+written on the stem — and the archive's ledger, month by month:
+
+| the evolution chart | the expedition record |
+|---|---|
+| ![The Cortex Line lineage chart](docs/screenshots/lineage.jpg) | ![The archive grid](docs/screenshots/archive.jpg) |
 
 ## Taking part (without leaving Bluesky)
 
