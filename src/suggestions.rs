@@ -199,6 +199,122 @@ pub async fn harvest_once(pool: &PgPool, client: &reqwest::Client) -> anyhow::Re
     Ok(stats)
 }
 
+/// File a mention's hashtags immediately — the bot's real-time intake
+/// (the daily sweep is the passive net).
+pub async fn file_mention(
+    pool: &PgPool,
+    rkey: &str,
+    artist_did: &str,
+    h: &Harvested,
+) -> anyhow::Result<usize> {
+    let mut stats = HarvestStats {
+        suggested: 0,
+        artist_tagged: 0,
+    };
+    file_post(pool, rkey, artist_did, "mention", h, &mut stats).await?;
+    Ok(stats.suggested + stats.artist_tagged)
+}
+
+/// File a thread for homepage registration, unless it's already hung or
+/// already in the box. The bot calls this whenever it answers a room ask
+/// that actually holds specimens.
+pub async fn file_room(
+    pool: &PgPool,
+    room: &crate::threads::ThreadRoom,
+    hung_count: usize,
+    source_uri: &str,
+) -> anyhow::Result<()> {
+    let registered = sqlx::query!(
+        "SELECT rkey FROM thread_rooms WHERE author_did = $1 AND rkey = $2",
+        room.author_did,
+        room.rkey,
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+    if registered {
+        return Ok(());
+    }
+    let inserted = sqlx::query!(
+        "INSERT INTO room_suggestions
+             (author_did, rkey, author_handle, title, hung_count, source_uri)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (author_did, rkey) DO NOTHING",
+        room.author_did,
+        room.rkey,
+        room.author_handle,
+        room.title,
+        hung_count as i32,
+        source_uri,
+    )
+    .execute(pool)
+    .await?;
+    if inserted.rows_affected() > 0 {
+        tracing::info!(author = %room.author_handle, rkey = %room.rkey, hung_count, "room filed for the desk");
+    }
+    Ok(())
+}
+
+/// One pending room for the curator's desk.
+pub struct PendingRoom {
+    pub suggestion_id: i64,
+    pub rkey: String,
+    pub author_handle: String,
+    pub title: String,
+    pub hung_count: i32,
+}
+
+pub async fn pending_rooms(pool: &PgPool) -> anyhow::Result<Vec<PendingRoom>> {
+    Ok(sqlx::query_as!(
+        PendingRoom,
+        r#"SELECT suggestion_id, rkey, author_handle, title, hung_count
+           FROM room_suggestions WHERE status = 'pending' ORDER BY created_at"#
+    )
+    .fetch_all(pool)
+    .await?)
+}
+
+/// Approve or decline a room suggestion. Approval hangs the thread on the
+/// homepage (a guest room, or a plate if it's the artist's own thread).
+pub async fn resolve_room(
+    pool: &PgPool,
+    suggestion_id: i64,
+    approve: bool,
+    curator_did: &str,
+) -> anyhow::Result<bool> {
+    let mut tx = pool.begin().await?;
+    let Some(row) = sqlx::query!(
+        "UPDATE room_suggestions
+         SET status = $2, resolved_at = now(), resolved_by = $3
+         WHERE suggestion_id = $1 AND status = 'pending'
+         RETURNING author_did, rkey, author_handle, title",
+        suggestion_id,
+        if approve { "approved" } else { "declined" },
+        curator_did,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        return Ok(false);
+    };
+    if approve {
+        sqlx::query!(
+            "INSERT INTO thread_rooms (author_did, rkey, author_handle, title, added_by)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (author_did, rkey) DO NOTHING",
+            row.author_did,
+            row.rkey,
+            row.author_handle,
+            row.title,
+            curator_did,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
 /// One pending row for the curator's desk.
 pub struct PendingSuggestion {
     pub suggestion_id: i64,
@@ -378,6 +494,51 @@ mod tests {
         .unwrap();
         assert_eq!(direct.source, "post");
         assert_eq!(direct.added_by, "artist-reply");
+    }
+
+    #[sqlx::test]
+    async fn room_suggestions_file_once_and_hang_on_approval(pool: PgPool) {
+        // The curator roster is needed for thread_rooms.added_by.
+        sqlx::query!(
+            "INSERT INTO curators (did, handle, role) VALUES ('did:plc:curator', 'corey.test', 'curator')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let room = crate::threads::ThreadRoom {
+            author_did: "did:plc:guest".into(),
+            author_handle: "guest.test".into(),
+            author_display: "A Guest".into(),
+            rkey: "3root".into(),
+            title: "my favorites".into(),
+            intro: String::new(),
+            entries: Vec::new(),
+        };
+        file_room(&pool, &room, 4, "at://did:plc:guest/app.bsky.feed.post/3m")
+            .await
+            .unwrap();
+        // Refiling is a no-op.
+        file_room(&pool, &room, 5, "at://elsewhere").await.unwrap();
+        let queue = pending_rooms(&pool).await.unwrap();
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].hung_count, 4);
+
+        assert!(
+            resolve_room(&pool, queue[0].suggestion_id, true, "did:plc:curator")
+                .await
+                .unwrap()
+        );
+        let hung = sqlx::query!(
+            "SELECT added_by FROM thread_rooms WHERE author_did = 'did:plc:guest' AND rkey = '3root'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(hung.added_by, "did:plc:curator");
+
+        // Already-registered rooms never re-enter the box.
+        file_room(&pool, &room, 4, "at://again").await.unwrap();
+        assert!(pending_rooms(&pool).await.unwrap().is_empty());
     }
 
     #[sqlx::test]

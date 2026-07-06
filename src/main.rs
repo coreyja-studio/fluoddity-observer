@@ -433,6 +433,10 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
             "/admin/suggestions/resolve",
             axum::routing::post(admin::resolve_suggestion),
         )
+        .route(
+            "/admin/room-suggestions/resolve",
+            axum::routing::post(admin::resolve_room_suggestion),
+        )
         .route("/admin/tags/add", axum::routing::post(admin::add_tag))
         .route("/admin/tags/remove", axum::routing::post(admin::remove_tag))
         .route("/static/style.css", get(stylesheet))

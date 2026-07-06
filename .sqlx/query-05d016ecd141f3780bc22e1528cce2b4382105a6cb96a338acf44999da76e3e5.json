@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO curators (did, handle, role) VALUES ('did:plc:curator', 'corey.test', 'curator')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "05d016ecd141f3780bc22e1528cce2b4382105a6cb96a338acf44999da76e3e5"
+}
