@@ -4,162 +4,156 @@
 >
 > **https://fluoddity.observer** — *as observed by Oops! All Paperclips.*
 
-A gallery for the GPU-raytraced particle simulations of
 [Oops! All Paperclips](https://bsky.app/profile/all-paperclips.bsky.social)
-(the system is his — he calls it *Fluoddity*). Posts scroll away; field guides
-don't. Each specimen gets a durable page: the loop, the artist's caption
-verbatim, the collection date, real community reactions as margin notes, and
-its mutation lineage.
+grows things inside a GPU: millions of particles, each with a tiny evolvable
+brain, leaving trails and reading the trails of their neighbors — and out of
+that, jellyfish. Party hats. Ouroboros tentacles that dissolve into
+bowler-hat medusae. He calls the system *Fluoddity*, and he posts his
+findings to Bluesky like a naturalist filing dispatches from an expedition
+no one else can visit.
+
+Timelines scroll away. Field guides do not. This site gives every specimen a
+permanent, linkable page — the loop itself, the artist's caption preserved
+word for word, the date of collection — and hangs the survey's selections in
+rooms where the community's reactions become notes in the margins.
 
 Born from [a wish by @norvid-studies](https://bsky.app/profile/norvid-studies.bsky.social/post/3mpli4fvzns22).
 
-## Design
+## What's in the guide
 
-- **Notebook register** — warm engraved-plate pages (Haeckel's *Art Forms in
-  Nature* is the north star): rooms are plates, specimens are figures.
-- **Behold register** — click any specimen and the notebook falls away;
-  full-bleed loop glowing in the dark. `Esc` or tap to return.
-- **Rooms by vibe, not date** — a provisional taxonomy assembled from the
-  artist's own vocabulary, pending his real one.
-- **Lineages** — caption-backed mutation families (the Cortex Line, the
-  Ouroboros Tentacle…) rendered as strips of descendants.
-- **Captions verbatim, always.** The only editorial voice is the community's:
-  margin notes are real Bluesky quote-posts, attributed.
+- **The Archive** — the complete expedition record, chronological: every
+  video loop and still image the artist has posted, each with its own page.
+  Specimen pages turn like notebook pages (previous / next sighting), and
+  the record can be split into *flatland* (2D) and *the depths* (3D).
+- **Rooms** — every room is one of the artist's own Bluesky threads,
+  rendered live. When the thread grows, the room grows with it. Other
+  people's threads hang as **Guest Rooms** — see "rooms are threads," below.
+- **Lineages** — a specimen is often a family. Forms mutate across days,
+  and the guide draws each family as an evolution chart: one descent line,
+  oldest form at the top, with the time between sightings written on the
+  stem the way a field notebook would ("later that day," "8 days pass").
+- **The Index** — search every caption, tag, and image description at
+  [/search](https://fluoddity.observer/search). The captions are half the
+  art; they're all searchable.
+- **Behold mode** — click any specimen and the notebook falls away:
+  full-bleed loop glowing in the dark. Tap or `Esc` to return.
+- **Ambient mode** — [lights off, let the collection play](https://fluoddity.observer/ambient).
+  A slow, endless exhibition: videos loop, stills hold like projector
+  slides, a label breathes in and out. Any room, lineage, or tag can be
+  projected (`space` skips, `Esc` leaves).
+- **Margin notes** — real Bluesky quote-posts, attributed, refreshed daily.
+  The only editorial voice in the guide besides the artist's is the
+  community's.
+- **Dispatches by feed** — new sightings as an Atom feed at
+  [/feed.xml](https://fluoddity.observer/feed.xml), for wherever you read.
 
-## Running
+New posts flow in on their own: the guide polls the artist's feed every few
+minutes, so a sighting posted on Bluesky has its permanent page within
+moments, no one lifting a finger.
+
+## Taking part (without leaving Bluesky)
+
+The guide reads Bluesky; you never need an account here.
+
+- **Suggest a tag** — reply to one of the artist's original posts with a
+  `#hashtag` (or quote-post it with one). A daily sweep files your
+  suggestion for the curator's desk; if the survey takes it up, the tag
+  hangs with **your name on the wall label** — every tag chip shows who
+  placed it.
+- **Suggest a tag, faster** — mention **@fluoddity.observer** in that reply
+  and the suggestion files within the minute, with an acknowledgement.
+- **Hang your own room** — make a thread of your favorite pieces
+  (quote-posts or links to the artist's work), mention
+  **@fluoddity.observer** anywhere in it, and the bot replies with your
+  thread's live room link. Keep adding to the thread; the room keeps
+  growing. Threads with real specimens are also filed for the curators,
+  who can hang them on the homepage as Guest Rooms.
+- **Say `!help`** — the bot introduces itself and explains all of this
+  in-thread.
+- **The weekly wrap-up** — once a week the gallery account posts that
+  week's most-liked specimens (never more than three, and nothing at all
+  in a quiet week — the guide is not a content quota).
+
+Only the artist's work ever renders. A thread can't inject foreign media
+into a room, and every suggestion passes a curator before it touches the
+guide.
+
+## For the artist
+
+The system is yours; the guide knows it.
+
+- **Captions are preserved verbatim, always.** No paraphrase, no cleanup.
+- **Your word is the taxonomy.** `#hashtags` in your captions become tags
+  automatically — and so do hashtags in your *replies* to your own posts,
+  no approval step, so you can tag (and correct) the archive from inside
+  Bluesky without ever visiting the site.
+- **Your threads are the museum's plates.** Registered artist threads are
+  the first-class rooms on the front page, numbered like engravings.
+- The rooms and lineages here are a provisional survey assembled from your
+  own vocabulary. The guide expects to be corrected — curation is visible
+  by design, and wall labels always say who selected what.
+
+## Rooms are threads
+
+Every room is a **Bluesky thread** — there is no other kind. Posts are the
+walk-through, post text becomes the wall labels, the root post is the
+introduction at the door. Threads render live at `/room/{handle}/{rkey}`
+(five-minute cache): edit the thread and the room follows. Viewing any
+thread as a room is permissionless; the homepage registry is curated.
+
+---
+
+## Under the hood
+
+Rust (Axum + Maud + SQLx/Postgres), server-rendered, no client framework.
+Media serves from the Bluesky CDNs in hosted mode (HLS video via hls.js,
+stills from the image CDN) — the site hosts no media. Background work
+(ingest polling, suggestion harvest, margin-note refresh, bot mentions,
+weekly wrap-up) runs on the cja cron + durable-job system with retries and
+a dead-letter queue.
+
+### Running locally
 
 ```bash
 createdb paperclips_gallery
-sqlx migrate run          # or just start the app; migrations run on boot
-cargo run -- import       # seed from metadata.jsonl + catalog.json
-cargo run                 # serve
+cargo run -- import       # seed from metadata.jsonl + catalog.json (migrations run on boot)
+cargo run                 # serve on :4601
 ```
 
-Subcommands: `serve` (default), `import`, `ingest-once`, `bot-once`,
+Subcommands: `serve` (default), `import`, `ingest-once`, `harvest-once`,
+`pull-media`, `refresh-notes`, `classify-dimensions`, `bot-once`,
 `bot-weekly`, `gen-oauth-key`.
-
-Background work runs on the **cja cron + job system**: the cron worker
-enqueues durable jobs on schedule (ingest every `PCG_POLL_SECS`, bot
-mentions every `PCG_BOT_POLL_SECS`, weekly wrap-up hourly), and the job
-worker runs them with automatic retries, exponential backoff, and a
-dead-letter queue. `COOKIE_KEY` (base64) keeps cja's cookie key stable
-across restarts.
-
-Environment:
 
 | var | default | meaning |
 |---|---|---|
 | `PCG_PORT` | `4601` | listen port |
-| `PCG_CATALOG` | `catalog.json` | curated catalog path |
-| `PCG_MEDIA_DIR` | `/home/coreyja.linux/paperclips-media/oops` | local media archive |
-| `PCG_MEDIA_MODE` | `local` | `local` (mp4s from `PCG_MEDIA_DIR`) or `cdn` (Bluesky video CDN, HLS via hls.js — no media hosting needed) |
 | `DATABASE_URL` | (required) | Postgres connection string (see `.mise.toml`) |
+| `PCG_MEDIA_MODE` | `local` | `local` (files from `PCG_MEDIA_DIR`) or `cdn` (Bluesky CDNs, nothing hosted) |
+| `PCG_MEDIA_DIR` | — | local media archive, for `local` mode and `pull-media` |
 | `PCG_POLL_SECS` | `300` | ingest poll interval; `0` disables |
+| `PCG_PUBLIC_URL` | — | hosted base URL (enables confidential OAuth; links in bot replies) |
 | `PCG_ADMIN_DIDS` | — | comma-separated `did[=handle]` curator roster seed |
-| `PCG_OAUTH_CALLBACK_URL` | `http://127.0.0.1:{port}/admin/oauth/callback` | loopback OAuth redirect |
+| `PCG_BOT_HANDLE` / `PCG_BOT_PASSWORD` | — | gallery account + **app password**; unset = bot disabled |
 
-In `local` mode, generate poster frames once (requires `ffmpeg`):
+The database is the source of truth. `import` seeds it from the flat-file
+era (`metadata.jsonl` + `catalog.json`) and is idempotent; everything after
+that — live ingest, tags, suggestions, rooms — accumulates in Postgres.
+`pull-media` cold-stores original blobs from the artist's PDS for any
+specimen the local archive is missing.
 
-```bash
-scripts/generate_posters.py [media-dir]
-```
+### The curator's desk
 
-## Rooms ARE threads
+`/admin` signs in with **Bluesky OAuth, identity only** — you approve on
+your own PDS, the site checks your DID against the curator roster and
+discards the tokens immediately. Curators register rooms, tag specimens
+inline, and work the suggestion box (community tags and rooms awaiting the
+wall). Hosted mode is a confidential OAuth client
+(`PCG_OAUTH_PRIVATE_KEY`, generate with `gen-oauth-key`); dev mode is a
+loopback client (reach the site via `127.0.0.1`).
 
-Every room is a **Bluesky thread** — there is no other kind. The artist's
-own registered threads are the museum's first-class plates on the front
-page; anyone else's registered threads hang under Guest Rooms. Threads
-render live at `/room/{handle}/{rkey}` (5-minute cache): posts are the
-walk-through, post text the wall labels, the root post the introduction.
-Edit the thread and the room follows.
+### CI & deploy
 
-Only the artist's specimens render (quote-posts of his work, links to his
-posts, or — for his own threads — his video posts directly), so a thread
-can't inject foreign content. Roster curators register threads from the
-desk; viewing any thread as a room is permissionless.
-
-## Tags & lineages
-
-Specimens carry optional tags; tags of kind **lineage** get the
-evolution-strip treatment (a chronological family of mutating forms) on
-specimen pages and at `/tag/{tag}`. Tag sources:
-
-- **curator** — roster curators add/remove tags inline on specimen pages
-  (controls appear when signed in)
-- **post** — `#hashtags` in the artist's captions become tags automatically
-  (at import and on live ingest), so oops can tag from inside Bluesky
-- **community** — reserved for a community-notes-style flow later
-
-## The gallery bot
-
-With `PCG_BOT_HANDLE` + `PCG_BOT_PASSWORD` (an app password) set, the gallery
-runs a Bluesky presence: **mention the account anywhere in a thread** and it
-replies with that thread's live room link. The bot polls its own
-notifications (every `PCG_BOT_POLL_SECS`, default 60) — chosen over Jetstream
-because notifications deliver exactly our mentions and queue across downtime,
-where Jetstream would mean filtering the whole network's post stream
-client-side. `bot_replies` ledger guarantees one answer per mention;
-`bot-once` runs a single poll manually. Set `PCG_PUBLIC_URL` so links point
-at the hosted site.
-
-**Weekly wrap-up**: once a completed Monday–Sunday week has passed, the bot
-posts a short thread of that week's most-liked specimens (up to 3, each
-quote-posting the original so the loop plays in-feed). Fewer entries on slow
-weeks; *nothing at all* when the artist was silent or nothing drew a like —
-the gallery never reads as a content quota. `bot-weekly` runs the check
-manually; `PCG_BOT_DRY_RUN=1` composes and logs without posting (works
-without credentials).
-
-## The curator's desk (admin)
-
-`/admin` is the curation portal. Identity is **Bluesky OAuth** — you sign in
-with your handle, approve on your own PDS, and the site checks your DID
-against the curator roster (`curators` table). We use OAuth for identity
-only: the atproto tokens are discarded the moment the DID is verified.
-
-- Roster: the artist DID (from `gallery_meta`) is always on it; seed others
-  with `PCG_ADMIN_DIDS="did:plc:xyz=handle,did:plc:abc"`.
-- Capabilities: register/remove thread rooms. Room contents are managed by
-  editing the threads themselves, on Bluesky.
-- **OAuth modes** (from env):
-  - *Confidential* (hosted): set `PCG_PUBLIC_URL` and `PCG_OAUTH_PRIVATE_KEY`
-    (generate with `paperclips-gallery gen-oauth-key`). The client identifies
-    itself via `/oauth/client-metadata.json` + `/oauth/jwks.json`
-    (private_key_jwt, ES256, DPoP-bound). Works from any browser once the
-    site is publicly reachable.
-  - *Loopback* (dev): neither set. The browser must reach the site via
-    `127.0.0.1` (e.g. `ssh -L 4601:localhost:4601 <vm>` then
-    http://127.0.0.1:4601/admin).
-
-## CI & deploy
-
-GitHub Actions (`ci.yml` + underscore reusables, the house convention): fmt,
-clippy (`-D warnings`, offline sqlx), SQLx prepare-check + tests against a
-Postgres service, cargo-deny (bans; openssl is denied), conventional-commit
-PR titles, and a `ready` aggregator for branch protection. Pushes to `main`
-deploy to Fly (`flyctl deploy --remote-only`).
-
-One-time setup:
-
-```bash
-fly apps create paperclips-gallery
-fly secrets set DATABASE_URL=… PCG_OAUTH_PRIVATE_KEY=… PCG_BOT_PASSWORD=…
-gh secret set FLY_API_TOKEN --repo coreyja-studio/paperclips-gallery
-```
-
-Then fill `PCG_PUBLIC_URL` / `PCG_BOT_HANDLE` / `PCG_ADMIN_DIDS` in
-`fly.toml`'s `[env]`. Hosted mode runs `PCG_MEDIA_MODE=cdn` — no media
-volume. Seed the database once from anywhere with the archive:
-`DATABASE_URL=<neon> paperclips-gallery import`. When queries change, run
+GitHub Actions: fmt, clippy (`-D warnings`), SQLx prepare-check + tests
+against a Postgres service, cargo-deny, conventional-commit PR titles, and
+a `ready` aggregator. Pushes to `main` deploy to Fly. When queries change:
 `cargo sqlx prepare -- --all-targets` and commit `.sqlx`.
-
-## Curation
-
-`catalog.json` is the whole editorial layer: rooms, specimens, lineage
-families, and margin notes. Specimens reference posts by `rkey`/`cid` from the
-archive's `metadata.jsonl`. To recurate, edit the catalog and restart — there
-is no database.
-
-The curation ladder (from the project brief): artist → invited curators →
-community queue. v1 is the founding survey; wall labels carry provenance so
-the ladder stays visible.
