@@ -43,8 +43,17 @@
   var behold = document.getElementById("behold");
   if (!behold) return;
   var beholdVideo = behold.querySelector("video");
+  var beholdImage = behold.querySelector("img");
+
+  function showBehold() {
+    behold.classList.add("open");
+    behold.setAttribute("aria-hidden", "false");
+    document.body.classList.add("beholding");
+  }
 
   function openBehold(source) {
+    beholdImage.removeAttribute("src");
+    behold.classList.remove("still");
     if (source.dataset.hls) {
       beholdVideo.removeAttribute("src");
       beholdVideo.dataset.hls = source.dataset.hls;
@@ -58,10 +67,18 @@
       beholdVideo.src = source.getAttribute("src");
     }
     beholdVideo.poster = source.getAttribute("poster") || "";
-    behold.classList.add("open");
-    behold.setAttribute("aria-hidden", "false");
-    document.body.classList.add("beholding");
+    showBehold();
     beholdVideo.play().catch(function () {});
+  }
+
+  function openBeholdStill(source) {
+    beholdVideo.pause();
+    beholdVideo.removeAttribute("src");
+    beholdVideo.load();
+    behold.classList.add("still");
+    beholdImage.src = source.getAttribute("src");
+    beholdImage.alt = source.getAttribute("alt") || "";
+    showBehold();
   }
 
   function closeBehold() {
@@ -71,11 +88,18 @@
     beholdVideo.pause();
     beholdVideo.removeAttribute("src");
     beholdVideo.load();
+    beholdImage.removeAttribute("src");
   }
 
   document.querySelectorAll("video.specimen-video").forEach(function (video) {
     video.addEventListener("click", function () {
       openBehold(video);
+    });
+  });
+
+  document.querySelectorAll("img.specimen-image").forEach(function (img) {
+    img.addEventListener("click", function () {
+      openBeholdStill(img);
     });
   });
 

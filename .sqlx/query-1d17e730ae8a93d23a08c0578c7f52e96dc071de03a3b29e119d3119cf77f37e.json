@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimen_images (rkey, position, cid, alt)\n                     VALUES ($1, $2, $3, $4) ON CONFLICT (rkey, position) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d17e730ae8a93d23a08c0578c7f52e96dc071de03a3b29e119d3119cf77f37e"
+}

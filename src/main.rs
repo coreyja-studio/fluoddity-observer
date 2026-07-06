@@ -86,6 +86,41 @@ impl Ctx {
             }
         }
     }
+
+    fn image_cdn(&self, cid: &str, variant: &str) -> String {
+        let did = &self.catalog.editorial.artist.did;
+        format!("https://cdn.bsky.app/img/{variant}/plain/{did}/{cid}@jpeg")
+    }
+
+    /// Full-quality src for one image of an image specimen.
+    pub fn image_src(&self, img: &catalog::SpecimenImage) -> String {
+        let local = match self.media_mode {
+            MediaMode::Local => img.file.as_deref(),
+            MediaMode::Cdn => None,
+        };
+        match local {
+            Some(file) => format!("/media/{file}"),
+            None => self.image_cdn(&img.cid, "feed_fullsize"),
+        }
+    }
+
+    /// Grid thumbnail for any specimen, whatever its kind.
+    pub fn thumb(&self, s: &catalog::Specimen) -> String {
+        match s.kind {
+            catalog::MediaKind::Video => self.video_sources(s).2,
+            catalog::MediaKind::Image => {
+                let local = match self.media_mode {
+                    MediaMode::Local => s.file.as_deref(),
+                    MediaMode::Cdn => None,
+                };
+                match local {
+                    Some(file) => format!("/media/{file}"),
+                    // The first image's cid is mirrored onto the specimen.
+                    None => self.image_cdn(&s.cid, "feed_thumbnail"),
+                }
+            }
+        }
+    }
 }
 
 /// A registered thread room joined with its live thread data.
@@ -450,13 +485,15 @@ async fn ambient(
             ctx.catalog.archive.all().iter().collect(),
         )
     };
-    if specimens.is_empty() {
-        return Ok(not_found());
-    }
+    // Ambient is a projection room — stills stay in the notebook.
     let entries: Vec<views::AmbientEntry> = specimens
         .iter()
+        .filter(|s| s.kind == catalog::MediaKind::Video)
         .map(|s| views::ambient_entry(&ctx, s))
         .collect();
+    if entries.is_empty() {
+        return Ok(not_found());
+    }
     Ok(views::ambient(&title, &entries).into_response())
 }
 

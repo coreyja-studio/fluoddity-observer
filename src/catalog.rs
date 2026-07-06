@@ -42,10 +42,35 @@ pub struct Artist {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Video,
+    Image,
+}
+
+impl MediaKind {
+    pub fn from_db(kind: &str) -> Self {
+        match kind {
+            "image" => Self::Image,
+            _ => Self::Video,
+        }
+    }
+}
+
+/// One image of an image specimen (a post carries up to four).
+#[derive(Debug, Clone)]
+pub struct SpecimenImage {
+    pub cid: String,
+    /// Path relative to the media dir; `None` when not pulled locally.
+    pub file: Option<String>,
+    pub alt: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct Specimen {
     pub rkey: String,
     pub cid: String,
+    pub kind: MediaKind,
     /// Path relative to the media dir; `None` when the blob hasn't been
     /// pulled locally — such specimens are served from the Bluesky CDN even
     /// in local media mode.
@@ -54,6 +79,8 @@ pub struct Specimen {
     /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
     pub url: String,
+    /// All images of an image specimen, in post order; empty for videos.
+    pub images: Vec<SpecimenImage>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -281,10 +308,12 @@ mod tests {
         Specimen {
             rkey: "3mtest".into(),
             cid: "bafytest".into(),
+            kind: MediaKind::Video,
             file: None,
             caption: caption.into(),
             date: "2026-06-04".into(),
             url: "https://example.test".into(),
+            images: Vec::new(),
         }
     }
 

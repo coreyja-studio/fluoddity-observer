@@ -283,6 +283,27 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   box-shadow: inset 0 0 0 1px rgba(242, 233, 212, 0.2), 0 10px 26px rgba(43, 36, 24, 0.45);
 }
 
+/* Still-image specimens share the video's plate framing. */
+.specimen-image {
+  display: block;
+  width: 100%;
+  object-fit: contain;
+  background: #0c0a07;
+  padding: 9px;
+  border: 1px solid var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(242, 233, 212, 0.15), 0 3px 12px rgba(43, 36, 24, 0.35);
+  cursor: zoom-in;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.specimen-image:hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 0 0 1px rgba(242, 233, 212, 0.2), 0 10px 26px rgba(43, 36, 24, 0.45);
+}
+
+.specimen-stills { display: grid; gap: 0.9rem; }
+.specimen-stills.multi { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
 .specimen figcaption { margin-top: 0.85rem; }
 
 .fig-no {
@@ -482,6 +503,9 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
 #behold.open { display: flex; }
 
 #behold video { max-width: 100vw; max-height: 100vh; width: 100%; height: 100%; object-fit: contain; }
+#behold img { display: none; max-width: 100vw; max-height: 100vh; width: 100%; height: 100%; object-fit: contain; }
+#behold.still video { display: none; }
+#behold.still img { display: block; }
 
 .behold-hint {
   position: absolute;

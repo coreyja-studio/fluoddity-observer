@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM specimen_images WHERE rkey = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0ea97f1623f447dc9d76e93786309f743a17075afda3dad2ceff43bb88a58dab"
+}
