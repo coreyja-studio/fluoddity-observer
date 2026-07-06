@@ -6,6 +6,7 @@ mod catalog;
 mod cron;
 mod db;
 mod dimensions;
+mod feed;
 mod ingest;
 mod jobs;
 mod margin_notes;
@@ -407,6 +408,8 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/", get(index))
         .route("/archive", get(archive))
         .route("/search", get(search))
+        .route("/feed.xml", get(atom_feed))
+        .route("/sitemap.xml", get(sitemap))
         .route("/room/{author}/{rkey}", get(thread_room))
         .route("/specimen/{rkey}", get(specimen))
         .route("/tag/{tag}", get(tag_page))
@@ -544,10 +547,9 @@ async fn ambient(
             ctx.catalog.archive.all().iter().collect(),
         )
     };
-    // Ambient is a projection room — stills stay in the notebook.
+    // Stills join the projection as held slides, videos as loops.
     let entries: Vec<views::AmbientEntry> = specimens
         .iter()
-        .filter(|s| s.kind == catalog::MediaKind::Video)
         .map(|s| views::ambient_entry(&ctx, s))
         .collect();
     if entries.is_empty() {
@@ -587,6 +589,27 @@ async fn specimen(
 
 async fn colophon(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
     Ok(views::colophon(&state.ctx().await?))
+}
+
+async fn atom_feed(State(state): State<SharedState>) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    let body = feed::atom(&ctx.catalog, &bot::public_url());
+    Ok((
+        [(header::CONTENT_TYPE, "application/atom+xml; charset=utf-8")],
+        body,
+    )
+        .into_response())
+}
+
+async fn sitemap(State(state): State<SharedState>) -> Result<Response, AppError> {
+    let ctx = state.ctx().await?;
+    let rooms = db::thread_rooms(&state.pool).await?;
+    let body = feed::sitemap(&ctx.catalog, &rooms, &bot::public_url());
+    Ok((
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+        body,
+    )
+        .into_response())
 }
 
 /// Confidential-client documents; 404 in loopback mode.

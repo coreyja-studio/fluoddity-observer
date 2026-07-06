@@ -68,6 +68,7 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
                 }
                 meta name="twitter:title" content=(meta.title);
                 meta name="twitter:description" content=(meta.description);
+                link rel="alternate" type="application/atom+xml" title="Fluoddity — dispatches from the expedition" href="/feed.xml";
                 link rel="preconnect" href="https://fonts.googleapis.com";
                 link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
                 link rel="stylesheet" href=(FONTS);
@@ -232,6 +233,10 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
                     }
                     p .ambient-link {
                         a href="/ambient" { "or enter ambient mode — lights off, let the collection play ✦" }
+                    }
+                    p .feed-link {
+                        a href="/feed.xml" { "dispatches by feed (Atom)" }
+                        " — new sightings, wherever you read"
                     }
                 }
 
@@ -443,14 +448,25 @@ pub fn specimen(
                     }
                 }
 
-                nav .room-nav {
+                @let (prev, next) = ctx.catalog.archive.neighbors(&s.rkey);
+                nav .room-nav .page-turn {
+                    @if let Some(p) = prev {
+                        a .turn-prev href=(format!("/specimen/{}", p.rkey)) title=(p.label()) {
+                            "← previous sighting"
+                        }
+                    } @else { span {} }
                     @if let Some(h) = hung_in.first() {
                         a href=(format!("/room/{}/{}", h.row.author_handle, h.row.rkey)) {
-                            "← back to " (h.room.title)
+                            "back to " (h.room.title)
                         }
                     } @else {
-                        a href="/archive" { "← back to the archive" }
+                        a href="/archive" { "the archive" }
                     }
+                    @if let Some(n) = next {
+                        a .turn-next href=(format!("/specimen/{}", n.rkey)) title=(n.label()) {
+                            "next sighting →"
+                        }
+                    } @else { span {} }
                 }
             }
         },
@@ -707,6 +723,8 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
 /// One entry in the ambient playlist, serialized for the client.
 #[derive(serde::Serialize)]
 pub struct AmbientEntry {
+    /// "video" or "image".
+    pub kind: &'static str,
     pub src: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hls: Option<String>,
@@ -715,12 +733,28 @@ pub struct AmbientEntry {
 }
 
 pub fn ambient_entry(ctx: &Ctx, s: &Specimen) -> AmbientEntry {
-    let (src, hls, poster) = ctx.video_sources(s);
-    AmbientEntry {
-        src,
-        hls,
-        poster,
-        label: s.label(),
+    match s.kind {
+        MediaKind::Video => {
+            let (src, hls, poster) = ctx.video_sources(s);
+            AmbientEntry {
+                kind: "video",
+                src,
+                hls,
+                poster,
+                label: s.label(),
+            }
+        }
+        MediaKind::Image => AmbientEntry {
+            kind: "image",
+            src: s
+                .images
+                .first()
+                .map(|img| ctx.image_src(img))
+                .unwrap_or_default(),
+            hls: None,
+            poster: String::new(),
+            label: s.label(),
+        },
     }
 }
 
@@ -741,8 +775,14 @@ pub fn ambient(title: &str, entries: &[AmbientEntry]) -> Markup {
             }
             body .ambient-body {
                 div #ambient-stage {
-                    video muted playsinline preload="auto" {}
-                    video muted playsinline preload="auto" {}
+                    div .layer {
+                        video muted playsinline preload="auto" {}
+                        img alt="";
+                    }
+                    div .layer {
+                        video muted playsinline preload="auto" {}
+                        img alt="";
+                    }
                 }
                 p #ambient-label {}
                 button #ambient-exit title="leave the exhibition (Esc)" { "✕" }
