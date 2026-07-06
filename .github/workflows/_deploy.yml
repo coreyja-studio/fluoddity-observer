@@ -7,7 +7,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     concurrency:
-      group: deploy-paperclips-gallery
+      group: deploy-fluoddity-observer
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
