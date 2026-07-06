@@ -28,6 +28,12 @@ fn registry() -> CronRegistry<AppState> {
         Duration::from_secs(24 * 60 * 60),
     );
 
+    registry.register_job(
+        jobs::HarvestSuggestions,
+        Some("harvest community hashtags into the suggestion box"),
+        Duration::from_secs(24 * 60 * 60),
+    );
+
     if bot::BotConfig::from_env().is_some() {
         let bot_secs: u64 = std::env::var("PCG_BOT_POLL_SECS")
             .ok()

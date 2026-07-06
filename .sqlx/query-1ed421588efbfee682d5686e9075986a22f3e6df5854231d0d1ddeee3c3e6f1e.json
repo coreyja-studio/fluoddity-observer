@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO gallery_meta\n                 (only_row, artist_handle, artist_did, artist_name,\n                  origin_handle, origin_text, origin_url)\n             VALUES (TRUE, 'artist.test', 'did:plc:artist', 'A', 'w', 'wish', 'u')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1ed421588efbfee682d5686e9075986a22f3e6df5854231d0d1ddeee3c3e6f1e"
+}

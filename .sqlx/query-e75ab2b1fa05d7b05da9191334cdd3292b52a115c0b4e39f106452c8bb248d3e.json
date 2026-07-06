@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT suggestion_id, rkey, tag, suggester_handle, suggester_did, via\n           FROM tag_suggestions WHERE status = 'pending' ORDER BY created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "suggestion_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "rkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "tag",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "suggester_handle",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "suggester_did",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "via",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e75ab2b1fa05d7b05da9191334cdd3292b52a115c0b4e39f106452c8bb248d3e"
+}

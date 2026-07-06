@@ -9,6 +9,7 @@ mod dimensions;
 mod ingest;
 mod jobs;
 mod margin_notes;
+mod suggestions;
 mod threads;
 mod views;
 
@@ -222,6 +223,7 @@ async fn main() -> anyhow::Result<()> {
         Some("ingest-once") => ingest_once(pool).await,
         Some("pull-media") => pull_media(pool).await,
         Some("refresh-notes") => refresh_notes(pool).await,
+        Some("harvest-once") => harvest_once(pool).await,
         Some("classify-dimensions") => classify_dimensions(pool).await,
         Some("bot-once") => bot_once(pool).await,
         Some("bot-weekly") => bot_weekly(pool).await,
@@ -230,7 +232,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `harvest-once`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -284,6 +286,20 @@ async fn import(pool: PgPool) -> anyhow::Result<()> {
 async fn classify_dimensions(pool: PgPool) -> anyhow::Result<()> {
     let added = dimensions::classify_archive(&pool).await?;
     tracing::info!(added, "dimension classification complete");
+    Ok(())
+}
+
+/// One manual suggestion harvest across the whole archive.
+async fn harvest_once(pool: PgPool) -> anyhow::Result<()> {
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let stats = suggestions::harvest_once(&pool, &client).await?;
+    tracing::info!(
+        suggested = stats.suggested,
+        artist_tagged = stats.artist_tagged,
+        "harvest-once complete"
+    );
     Ok(())
 }
 
@@ -412,6 +428,10 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route(
             "/admin/thread-rooms/remove",
             axum::routing::post(admin::remove_thread_room),
+        )
+        .route(
+            "/admin/suggestions/resolve",
+            axum::routing::post(admin::resolve_suggestion),
         )
         .route("/admin/tags/add", axum::routing::post(admin::add_tag))
         .route("/admin/tags/remove", axum::routing::post(admin::remove_tag))

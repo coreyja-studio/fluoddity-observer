@@ -14,7 +14,7 @@ use maud::{DOCTYPE, Markup, html};
 use crate::{
     SharedState,
     auth::{self, Curator, SESSION_COOKIE},
-    db,
+    db, suggestions,
 };
 
 /// Errors render as a plain 500; auth failures redirect in the extractor.
@@ -190,10 +190,9 @@ pub async fn dashboard(
     curator: Curator,
 ) -> Result<Markup, AdminError> {
     let thread_rooms = db::thread_rooms(&state.pool).await?;
-    let artist_did = sqlx::query!("SELECT artist_did FROM gallery_meta")
-        .fetch_one(&state.pool)
-        .await?
-        .artist_did;
+    let pending = suggestions::pending(&state.pool).await?;
+    let catalog = db::load_catalog(&state.pool).await?;
+    let artist_did = catalog.editorial.artist.did.clone();
     Ok(admin_base(
         "Rooms",
         html! {
@@ -231,8 +230,56 @@ pub async fn dashboard(
                     button type="submit" { "hang this thread" }
                 }
             }
+
+            section {
+                h2 .room-label { "The Suggestion Box" }
+                p .room-sublabel {
+                    "hashtags left in replies to (and quote-posts of) the artist's originals, "
+                    "harvested daily. Approve and the tag hangs with the suggester's name on "
+                    "the wall label; decline and it never comes back."
+                }
+                @if pending.is_empty() {
+                    p .room-sublabel { "the box is empty — the community hasn't spoken since the last sweep" }
+                }
+                @for s in &pending {
+                    div .admin-specimen {
+                        @let label = catalog.archive.get(&s.rkey).map(|sp| sp.label()).unwrap_or_else(|| s.rkey.clone());
+                        a href=(format!("/specimen/{}", s.rkey)) { (label) }
+                        @let suggester = if s.suggester_handle.is_empty() { s.suggester_did.clone() } else { format!("@{}", s.suggester_handle) };
+                        span .admin-date {
+                            "#" (s.tag) " · by " (suggester) " · via " (s.via)
+                        }
+                        form method="post" action="/admin/suggestions/resolve" .inline-form {
+                            input type="hidden" name="suggestion_id" value=(s.suggestion_id);
+                            button type="submit" name="action" value="approve" { "hang it" }
+                            " "
+                            button type="submit" name="action" value="decline" .link-button { "decline" }
+                        }
+                    }
+                }
+            }
         },
     ))
+}
+
+#[derive(serde::Deserialize)]
+pub struct ResolveSuggestionForm {
+    suggestion_id: i64,
+    action: String,
+}
+
+pub async fn resolve_suggestion(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<ResolveSuggestionForm>,
+) -> Result<Redirect, AdminError> {
+    let approve = form.action == "approve";
+    let resolved =
+        suggestions::resolve(&state.pool, form.suggestion_id, approve, &curator.did).await?;
+    if let Some(rkey) = resolved {
+        tracing::info!(curator = %curator.did, %rkey, id = form.suggestion_id, approve, "suggestion resolved");
+    }
+    Ok(Redirect::to("/admin"))
 }
 
 fn display_name(curator: &Curator) -> String {

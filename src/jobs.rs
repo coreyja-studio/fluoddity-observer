@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{AppState, bot, ingest, margin_notes};
+use crate::{AppState, bot, ingest, margin_notes, suggestions};
 
 fn http_client() -> cja::Result<reqwest::Client> {
     reqwest::Client::builder()
@@ -104,10 +104,35 @@ impl cja::jobs::Job<AppState> for RefreshMarginNotes {
     }
 }
 
+/// Harvest community hashtags (replies + quote-posts) into the
+/// suggestion box; the artist's own reply-tags land directly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HarvestSuggestions;
+
+#[async_trait::async_trait]
+impl cja::jobs::Job<AppState> for HarvestSuggestions {
+    const NAME: &'static str = "HarvestSuggestions";
+
+    async fn run(&self, state: AppState) -> cja::Result<()> {
+        let stats = suggestions::harvest_once(&state.pool, &http_client()?)
+            .await
+            .map_err(to_eyre)?;
+        if stats.suggested > 0 || stats.artist_tagged > 0 {
+            tracing::info!(
+                suggested = stats.suggested,
+                artist_tagged = stats.artist_tagged,
+                "suggestion harvest complete"
+            );
+        }
+        Ok(())
+    }
+}
+
 cja::impl_job_registry!(
     AppState,
     IngestPoll,
     ProcessMentions,
     WeeklyWrapup,
-    RefreshMarginNotes
+    RefreshMarginNotes,
+    HarvestSuggestions
 );
