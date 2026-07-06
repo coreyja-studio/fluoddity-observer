@@ -20,6 +20,8 @@ const MAX_BLOB_BYTES: u64 = 256 * 1024 * 1024;
 
 pub struct PullStats {
     pub pulled: usize,
+    /// Video originals mirrored into the Bunny vault this run.
+    pub synced: usize,
     pub failed: usize,
 }
 
@@ -126,6 +128,7 @@ pub async fn pull_media(
     pool: &PgPool,
     client: &reqwest::Client,
     media_dir: &str,
+    bunny: Option<&crate::storage::BunnyConfig>,
 ) -> anyhow::Result<PullStats> {
     let meta = sqlx::query!("SELECT artist_did FROM gallery_meta")
         .fetch_one(pool)
@@ -136,6 +139,7 @@ pub async fn pull_media(
 
     let mut stats = PullStats {
         pulled: 0,
+        synced: 0,
         failed: 0,
     };
 
@@ -223,7 +227,55 @@ pub async fn pull_media(
         }
     }
 
+    if let Some(bunny) = bunny {
+        sync_videos_to_vault(pool, client, media_dir, bunny, &mut stats).await?;
+    }
+
     Ok(stats)
+}
+
+/// Mirror locally held video originals into the Bunny vault so the live
+/// site can serve full-rate files instead of the Bluesky re-encode.
+/// Idempotent: only rows without a pds_key are touched, so a rerun uploads
+/// exactly what's still missing.
+async fn sync_videos_to_vault(
+    pool: &PgPool,
+    client: &reqwest::Client,
+    media_dir: &str,
+    bunny: &crate::storage::BunnyConfig,
+    stats: &mut PullStats,
+) -> anyhow::Result<()> {
+    let rows = sqlx::query!(
+        "SELECT rkey, file FROM specimens
+         WHERE kind = 'video' AND file IS NOT NULL AND pds_key IS NULL
+         ORDER BY collected_on, rkey"
+    )
+    .fetch_all(pool)
+    .await?;
+    tracing::info!(count = rows.len(), "video originals awaiting vault sync");
+    for row in &rows {
+        let file = row.file.as_deref().expect("filtered to file IS NOT NULL");
+        let path = std::path::Path::new(media_dir).join(file);
+        let key = crate::storage::pds_key(file);
+        match bunny.put_file(client, &key, &path).await {
+            Ok(()) => {
+                sqlx::query!(
+                    "UPDATE specimens SET pds_key = $1 WHERE rkey = $2",
+                    key,
+                    row.rkey
+                )
+                .execute(pool)
+                .await?;
+                tracing::info!(rkey = %row.rkey, %key, "synced video original to vault");
+                stats.synced += 1;
+            }
+            Err(err) => {
+                tracing::warn!(?err, rkey = %row.rkey, "vault sync failed");
+                stats.failed += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

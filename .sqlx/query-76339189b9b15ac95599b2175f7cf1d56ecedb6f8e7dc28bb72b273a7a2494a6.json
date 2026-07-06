@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE specimens SET master_key = $1 WHERE rkey = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "76339189b9b15ac95599b2175f7cf1d56ecedb6f8e7dc28bb72b273a7a2494a6"
+}
