@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT added_by FROM thread_rooms WHERE author_did = 'did:plc:guest' AND rkey = '3root'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "added_by",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "df81c23e06f4cc9ed2bffe6eb657344c12e1a6252af446f5e0a9d2faf25a9595"
+}

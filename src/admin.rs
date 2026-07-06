@@ -191,6 +191,7 @@ pub async fn dashboard(
 ) -> Result<Markup, AdminError> {
     let thread_rooms = db::thread_rooms(&state.pool).await?;
     let pending = suggestions::pending(&state.pool).await?;
+    let pending_rooms = suggestions::pending_rooms(&state.pool).await?;
     let catalog = db::load_catalog(&state.pool).await?;
     let artist_did = catalog.editorial.artist.did.clone();
     Ok(admin_base(
@@ -231,6 +232,31 @@ pub async fn dashboard(
                 }
             }
 
+            @if !pending_rooms.is_empty() {
+                section {
+                    h2 .room-label { "Rooms Awaiting the Wall" }
+                    p .room-sublabel {
+                        "threads the bot answered that hold real specimens — approve to hang "
+                        "them on the homepage"
+                    }
+                    @for r in &pending_rooms {
+                        div .admin-specimen {
+                            a href=(format!("/room/{}/{}", r.author_handle, r.rkey)) { (r.title) }
+                            span .admin-date {
+                                "@" (r.author_handle) " · " (r.hung_count) " specimen"
+                                @if r.hung_count != 1 { "s" }
+                            }
+                            form method="post" action="/admin/room-suggestions/resolve" .inline-form {
+                                input type="hidden" name="suggestion_id" value=(r.suggestion_id);
+                                button type="submit" name="action" value="approve" { "hang it" }
+                                " "
+                                button type="submit" name="action" value="decline" .link-button { "decline" }
+                            }
+                        }
+                    }
+                }
+            }
+
             section {
                 h2 .room-label { "The Suggestion Box" }
                 p .room-sublabel {
@@ -266,6 +292,18 @@ pub async fn dashboard(
 pub struct ResolveSuggestionForm {
     suggestion_id: i64,
     action: String,
+}
+
+pub async fn resolve_room_suggestion(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<ResolveSuggestionForm>,
+) -> Result<Redirect, AdminError> {
+    let approve = form.action == "approve";
+    if suggestions::resolve_room(&state.pool, form.suggestion_id, approve, &curator.did).await? {
+        tracing::info!(curator = %curator.did, id = form.suggestion_id, approve, "room suggestion resolved");
+    }
+    Ok(Redirect::to("/admin"))
 }
 
 pub async fn resolve_suggestion(

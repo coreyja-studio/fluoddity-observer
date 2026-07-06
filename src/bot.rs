@@ -83,6 +83,46 @@ pub struct Ask {
     /// Thread root (the room head): uri + cid.
     pub root_uri: String,
     pub root_cid: String,
+    /// The mention post's text — commands and hashtags live here.
+    pub text: String,
+    pub author_did: String,
+    pub author_handle: String,
+    /// The post this mention replies to, when it is a reply.
+    pub parent_uri: Option<String>,
+}
+
+/// What a mention is asking for.
+#[derive(Debug, PartialEq)]
+pub enum Command {
+    /// "!help" anywhere in the text.
+    Help,
+    /// Hashtags in a reply to one of the artist's posts: tag suggestions
+    /// for that specimen.
+    SuggestTags {
+        specimen_rkey: String,
+        tags: Vec<String>,
+    },
+    /// The default: answer with the thread's room link.
+    RoomLink,
+}
+
+/// Classify a mention. Pure — the caller still checks the specimen exists.
+pub fn classify_ask(ask: &Ask, artist_did: &str) -> Command {
+    if ask.text.to_lowercase().contains("!help") {
+        return Command::Help;
+    }
+    let tags = crate::catalog::extract_hashtags(&ask.text);
+    if !tags.is_empty()
+        && let Some(parent) = &ask.parent_uri
+        && let Some((did, rkey)) = split_at_uri(parent)
+        && did == artist_did
+    {
+        return Command::SuggestTags {
+            specimen_rkey: rkey,
+            tags,
+        };
+    }
+    Command::RoomLink
 }
 
 /// Pull answerable mentions out of a listNotifications response.
@@ -99,6 +139,7 @@ pub fn parse_mentions(notifications: &serde_json::Value) -> Vec<Ask> {
         .filter_map(|n| {
             let uri = n.get("uri")?.as_str()?.to_string();
             let cid = n.get("cid")?.as_str()?.to_string();
+            let author = n.get("author")?;
             let record = n.get("record")?;
             let (root_uri, root_cid) = match record
                 .get("reply")
@@ -118,6 +159,23 @@ pub fn parse_mentions(notifications: &serde_json::Value) -> Vec<Ask> {
                 mention_cid: cid,
                 root_uri,
                 root_cid,
+                text: record
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                author_did: author.get("did")?.as_str()?.to_string(),
+                author_handle: author
+                    .get("handle")
+                    .and_then(|h| h.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                parent_uri: record
+                    .get("reply")
+                    .and_then(|r| r.get("parent"))
+                    .and_then(|p| p.get("uri"))
+                    .and_then(|u| u.as_str())
+                    .map(str::to_string),
             })
         })
         .collect()
@@ -164,6 +222,31 @@ pub fn compose_reply(
     (text, facets)
 }
 
+/// The bot's self-introduction, for "!help".
+pub fn compose_help(public_url: &str) -> String {
+    format!(
+        "I keep the field guide at {public_url}.\n\n\
+         Mention me in a thread of the artist's work and I'll hang it as a room.\n\
+         Reply to one of his posts with #hashtags (and mention me) and I'll file \
+         them for the curator's desk.\n\n\
+         That's all I know how to do — the rest is the survey's job."
+    )
+}
+
+/// Acknowledgement for tag suggestions filed via mention.
+pub fn compose_tag_ack(tags: &[String]) -> String {
+    let listed = tags
+        .iter()
+        .map(|t| format!("#{t}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "Noted — {listed} filed for the curator's desk. \
+         If the survey takes {} up, your name goes on the wall label.",
+        if tags.len() == 1 { "it" } else { "them" },
+    )
+}
+
 /// One notifications poll: answer new mentions, mark them replied.
 /// Returns the number of replies posted.
 pub async fn poll_once(
@@ -206,47 +289,89 @@ pub async fn poll_once(
             continue;
         }
 
-        let Some((root_author, root_rkey)) = split_at_uri(&ask.root_uri) else {
-            continue;
-        };
-        let Some(room) = threads
-            .fetch(
-                &root_author,
-                &root_rkey,
-                &meta.artist_did,
-                &meta.artist_handle,
-            )
-            .await?
-        else {
-            tracing::warn!(uri = %ask.root_uri, "mentioned thread did not resolve");
-            continue;
+        let mut command = classify_ask(&ask, &meta.artist_did);
+        // A tag ask only holds if the parent post is actually a specimen.
+        if let Command::SuggestTags { specimen_rkey, .. } = &command {
+            let exists = sqlx::query!("SELECT rkey FROM specimens WHERE rkey = $1", specimen_rkey)
+                .fetch_optional(pool)
+                .await?
+                .is_some();
+            if !exists {
+                command = Command::RoomLink;
+            }
+        }
+
+        let (text, facets) = match &command {
+            Command::Help => (compose_help(&cfg.public_url), None),
+            Command::SuggestTags {
+                specimen_rkey,
+                tags,
+            } => {
+                let harvested = crate::suggestions::Harvested {
+                    author_did: ask.author_did.clone(),
+                    author_handle: ask.author_handle.clone(),
+                    text: ask.text.clone(),
+                    uri: ask.mention_uri.clone(),
+                };
+                crate::suggestions::file_mention(pool, specimen_rkey, &meta.artist_did, &harvested)
+                    .await?;
+                (compose_tag_ack(tags), None)
+            }
+            Command::RoomLink => {
+                let Some((root_author, root_rkey)) = split_at_uri(&ask.root_uri) else {
+                    continue;
+                };
+                let Some(room) = threads
+                    .fetch(
+                        &root_author,
+                        &root_rkey,
+                        &meta.artist_did,
+                        &meta.artist_handle,
+                    )
+                    .await?
+                else {
+                    tracing::warn!(uri = %ask.root_uri, "mentioned thread did not resolve");
+                    continue;
+                };
+
+                // Count entries that actually exist in the archive.
+                let rkeys: Vec<String> = room
+                    .entries
+                    .iter()
+                    .map(|e| e.specimen_rkey.clone())
+                    .collect();
+                let hung_count = sqlx::query!(
+                    "SELECT count(*) AS \"count!\" FROM specimens WHERE rkey = ANY($1)",
+                    &rkeys,
+                )
+                .fetch_one(pool)
+                .await?
+                .count as usize;
+
+                // A thread with real specimens is homepage material — file
+                // it for the curator's desk (idempotent; skips registered).
+                if hung_count > 0 {
+                    crate::suggestions::file_room(pool, &room, hung_count, &ask.mention_uri)
+                        .await?;
+                }
+
+                let (text, facets) = compose_reply(&cfg.public_url, &room, hung_count);
+                (text, Some(facets))
+            }
         };
 
-        // Count entries that actually exist in the archive.
-        let rkeys: Vec<String> = room
-            .entries
-            .iter()
-            .map(|e| e.specimen_rkey.clone())
-            .collect();
-        let hung_count = sqlx::query!(
-            "SELECT count(*) AS \"count!\" FROM specimens WHERE rkey = ANY($1)",
-            &rkeys,
-        )
-        .fetch_one(pool)
-        .await?
-        .count as usize;
-
-        let (text, facets) = compose_reply(&cfg.public_url, &room, hung_count);
-        let record = serde_json::json!({
+        let mut record = serde_json::json!({
             "$type": "app.bsky.feed.post",
             "text": text,
-            "facets": facets,
             "createdAt": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "reply": {
                 "root": {"uri": ask.root_uri, "cid": ask.root_cid},
                 "parent": {"uri": ask.mention_uri, "cid": ask.mention_cid},
             },
         });
+        if let Some(facets) = facets {
+            record["facets"] = facets;
+        }
         let created: serde_json::Value = client
             .post(format!("{}/xrpc/com.atproto.repo.createRecord", cfg.pds))
             .bearer_auth(&session.access_jwt)
@@ -274,7 +399,7 @@ pub async fn poll_once(
         )
         .execute(pool)
         .await?;
-        tracing::info!(mention = %ask.mention_uri, reply = %reply_uri, "answered a room ask");
+        tracing::info!(mention = %ask.mention_uri, reply = %reply_uri, ?command, "answered an ask");
         replied += 1;
     }
 
@@ -302,6 +427,7 @@ mod tests {
                     "uri": "at://did:plc:guest/app.bsky.feed.post/3mention",
                     "cid": "bafy-mention",
                     "reason": "mention",
+                    "author": {"did": "did:plc:guest", "handle": "guest.test"},
                     "record": {
                         "text": "@gallery hang this!",
                         "reply": {
@@ -314,6 +440,7 @@ mod tests {
                     "uri": "at://did:plc:guest/app.bsky.feed.post/3toplevel",
                     "cid": "bafy-top",
                     "reason": "mention",
+                    "author": {"did": "did:plc:guest", "handle": "guest.test"},
                     "record": {"text": "@gallery look at my new thread"}
                 },
                 {
@@ -339,6 +466,80 @@ mod tests {
         // A top-level mention is its own root.
         assert_eq!(asks[1].root_uri, asks[1].mention_uri);
         assert_eq!(asks[1].root_cid, "bafy-top");
+        // Author and parent carry through for command classification.
+        assert_eq!(asks[0].author_handle, "guest.test");
+        assert_eq!(
+            asks[0].parent_uri.as_deref(),
+            Some("at://did:plc:guest/app.bsky.feed.post/3parent")
+        );
+        assert_eq!(asks[1].parent_uri, None);
+    }
+
+    fn ask(text: &str, parent_uri: Option<&str>) -> Ask {
+        Ask {
+            mention_uri: "at://did:plc:fan/app.bsky.feed.post/3m".into(),
+            mention_cid: "bafy-m".into(),
+            root_uri: "at://did:plc:artist/app.bsky.feed.post/3root".into(),
+            root_cid: "bafy-root".into(),
+            text: text.into(),
+            author_did: "did:plc:fan".into(),
+            author_handle: "fan.test".into(),
+            parent_uri: parent_uri.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn asks_classify_by_text_and_parent() {
+        const ARTIST: &str = "did:plc:artist";
+        // !help anywhere wins, any case.
+        assert_eq!(
+            classify_ask(&ask("what do you do? !HELP", None), ARTIST),
+            Command::Help
+        );
+        // Hashtags in a reply to an artist post file as suggestions.
+        assert_eq!(
+            classify_ask(
+                &ask(
+                    "@gallery #jellyfish #flatland",
+                    Some("at://did:plc:artist/app.bsky.feed.post/3spec")
+                ),
+                ARTIST
+            ),
+            Command::SuggestTags {
+                specimen_rkey: "3spec".into(),
+                tags: vec!["jellyfish".into(), "flatland".into()],
+            }
+        );
+        // Hashtags replying to a NON-artist post are not tag asks.
+        assert_eq!(
+            classify_ask(
+                &ask(
+                    "#jellyfish",
+                    Some("at://did:plc:someone/app.bsky.feed.post/3x")
+                ),
+                ARTIST
+            ),
+            Command::RoomLink
+        );
+        // No hashtags, no !help: the classic room ask.
+        assert_eq!(
+            classify_ask(&ask("hang my thread please", None), ARTIST),
+            Command::RoomLink
+        );
+    }
+
+    #[test]
+    fn help_and_tag_ack_read_right() {
+        let help = compose_help("https://fluoddity.example");
+        assert!(help.contains("https://fluoddity.example"));
+        assert!(help.contains("curator's desk"));
+
+        let one = compose_tag_ack(&["jellyfish".to_string()]);
+        assert!(one.contains("#jellyfish"), "{one}");
+        assert!(one.contains("takes it up"));
+        let two = compose_tag_ack(&["a".to_string(), "b".to_string()]);
+        assert!(two.contains("#a #b"));
+        assert!(two.contains("takes them up"));
     }
 
     #[test]
