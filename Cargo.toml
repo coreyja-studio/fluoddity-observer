@@ -12,7 +12,7 @@ atrium-identity = "0.1"
 atrium-oauth = { version = "0.1", default-features = false }
 atrium-xrpc = "0.12"
 axum = { version = "0.8", features = ["multipart"] }
-axum-extra = { version = "0.10", features = ["cookie"] }
+axum-extra = { version = "0.10", features = ["cookie", "form"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 cja = { git = "https://github.com/coreyja/cja", branch = "main" }

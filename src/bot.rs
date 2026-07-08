@@ -706,7 +706,8 @@ pub async fn weekly_once(
     }
 
     let specimens = sqlx::query!(
-        "SELECT rkey, caption FROM specimens WHERE collected_on BETWEEN $1 AND $2",
+        "SELECT rkey, caption FROM specimens
+         WHERE collected_on BETWEEN $1 AND $2 AND removed_at IS NULL",
         week_start,
         week_end,
     )

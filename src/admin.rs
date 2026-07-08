@@ -8,6 +8,7 @@ use axum::{
     extract::{Multipart, Query, State},
     response::{IntoResponse, Redirect, Response},
 };
+use axum_extra::extract::Form as HtmlForm;
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use maud::{DOCTYPE, Markup, html};
 use tokio::io::AsyncWriteExt;
@@ -196,6 +197,7 @@ pub async fn dashboard(
     let pending_rooms = suggestions::pending_rooms(&state.pool).await?;
     let catalog = db::load_catalog(&state.pool).await?;
     let artist_did = catalog.editorial.artist.did.clone();
+    let removed = db::load_removed_specimens(&state.pool).await?;
     Ok(admin_base(
         "Rooms",
         html! {
@@ -268,6 +270,14 @@ pub async fn dashboard(
             }
 
             section {
+                h2 .room-label { "The Catalogue" }
+                p .room-sublabel {
+                    "every live specimen, with take-down controls — "
+                    a href="/admin/specimens" { "curate the gallery →" }
+                }
+            }
+
+            section {
                 h2 .room-label { "The Suggestion Box" }
                 p .room-sublabel {
                     "hashtags left in replies to (and quote-posts of) the artist's originals, "
@@ -290,6 +300,28 @@ pub async fn dashboard(
                             button type="submit" name="action" value="approve" { "hang it" }
                             " "
                             button type="submit" name="action" value="decline" .link-button { "decline" }
+                        }
+                    }
+                }
+            }
+
+            @if !removed.is_empty() {
+                section {
+                    h2 .room-label { "Removed from the Gallery" }
+                    p .room-sublabel {
+                        "specimens taken down by curators — restored specimens return to the gallery immediately"
+                    }
+                    @for r in &removed {
+                        div .admin-specimen {
+                            a href=(format!("/specimen/{}", r.rkey)) { (r.label()) }
+                            span .admin-date {
+                                "removed " (r.removed_at.format("%Y-%m-%d %H:%M UTC"))
+                                @if let Some(by) = &r.removed_by { " · by " (by) }
+                            }
+                            form method="post" action="/admin/specimens/restore" .inline-form {
+                                input type="hidden" name="rkey" value=(r.rkey);
+                                button type="submit" { "restore" }
+                            }
                         }
                     }
                 }
@@ -537,6 +569,46 @@ fn display_name(curator: &Curator) -> String {
     }
 }
 
+// ---- the catalogue (batch removal) ----
+
+/// The full specimen list with batch-removal controls.
+pub async fn specimens_page(
+    State(state): State<SharedState>,
+    curator: Curator,
+) -> Result<Markup, AdminError> {
+    let catalog = db::load_catalog(&state.pool).await?;
+    Ok(admin_base(
+        "Specimens",
+        html! {
+            p .signed-in {
+                "signed in as " strong { (display_name(&curator)) }
+                " · " a href="/admin" { "← the desk" }
+            }
+
+            section {
+                h2 .room-label { "All Specimens" }
+                p .room-sublabel {
+                    "check the box beside any specimen to take it down from the gallery — "
+                    "removed specimens disappear from every public surface and survive re-ingest"
+                }
+                form method="post" action="/admin/specimens/batch-remove" .admin-form {
+                    @for s in catalog.archive.all().iter().rev() {
+                        div .admin-specimen {
+                            label {
+                                input type="checkbox" name="rkeys" value=(s.rkey);
+                                " "
+                                a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                            }
+                            span .admin-date { (s.date) }
+                        }
+                    }
+                    button type="submit" { "remove selected from gallery" }
+                }
+            }
+        },
+    ))
+}
+
 // ---- mutations ----
 
 #[derive(serde::Deserialize)]
@@ -673,6 +745,84 @@ pub async fn remove_tag(
     .await?;
     tracing::info!(curator = %curator.did, rkey = %form.rkey, tag = %form.tag, "tag removed");
     Ok(Redirect::to(&format!("/specimen/{}", form.rkey)))
+}
+
+// ---- specimen removal ----
+
+#[derive(serde::Deserialize)]
+pub struct RemoveSpecimenForm {
+    rkey: String,
+}
+
+pub async fn remove_specimen(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<RemoveSpecimenForm>,
+) -> Result<Redirect, AdminError> {
+    sqlx::query!(
+        "UPDATE specimens SET removed_at = now(), removed_by = $2
+         WHERE rkey = $1 AND removed_at IS NULL",
+        form.rkey,
+        curator.did,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, "specimen removed from gallery");
+    // Redirect to /admin (not /specimen/{rkey}) because the specimen page
+    // now 404s — it's been filtered out of the catalog by load_catalog.
+    Ok(Redirect::to("/admin"))
+}
+
+#[derive(serde::Deserialize)]
+pub struct BatchRemoveForm {
+    // #[serde(default)] ensures a zero-checkbox submit deserializes to an
+    // empty Vec instead of erroring on the missing field.
+    #[serde(default)]
+    rkeys: Vec<String>,
+}
+
+pub async fn batch_remove_specimens(
+    State(state): State<SharedState>,
+    curator: Curator,
+    HtmlForm(form): HtmlForm<BatchRemoveForm>,
+) -> Result<Redirect, AdminError> {
+    if form.rkeys.is_empty() {
+        return Ok(Redirect::to("/admin/specimens"));
+    }
+    sqlx::query!(
+        "UPDATE specimens SET removed_at = now(), removed_by = $2
+         WHERE rkey = ANY($1) AND removed_at IS NULL",
+        &form.rkeys,
+        curator.did,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkeys = ?form.rkeys, "specimens batch-removed from gallery");
+    Ok(Redirect::to("/admin/specimens"))
+}
+
+#[derive(serde::Deserialize)]
+pub struct RestoreSpecimenForm {
+    rkey: String,
+}
+
+pub async fn restore_specimen(
+    State(state): State<SharedState>,
+    curator: Curator,
+    Form(form): Form<RestoreSpecimenForm>,
+) -> Result<Redirect, AdminError> {
+    // Restore must explicitly clear BOTH removed_at AND removed_by — fields
+    // not listed in SET retain their current values, so clearing only
+    // removed_at would leave stale removed_by data.
+    sqlx::query!(
+        "UPDATE specimens SET removed_at = NULL, removed_by = NULL
+         WHERE rkey = $1 AND removed_at IS NOT NULL",
+        form.rkey,
+    )
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(curator = %curator.did, rkey = %form.rkey, "specimen restored to gallery");
+    Ok(Redirect::to("/admin"))
 }
 
 /// Accepts bsky.app post URLs or at-uris; returns (author, rkey).

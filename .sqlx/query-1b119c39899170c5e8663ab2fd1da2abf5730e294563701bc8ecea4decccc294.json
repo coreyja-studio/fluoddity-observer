@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO specimens (rkey, cid, caption, collected_on, url)\n             VALUES ('3ma', 'bafy-a', 'Jellyfish!', '2026-06-04', 'https://x'),\n                    ('3mb', 'bafy-b', 'Party hats', '2026-06-05', 'https://y')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1b119c39899170c5e8663ab2fd1da2abf5730e294563701bc8ecea4decccc294"
+}
