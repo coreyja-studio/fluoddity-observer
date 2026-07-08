@@ -36,7 +36,7 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     }
 
     let specimens = sqlx::query!(
-        "SELECT rkey, cid, kind, file, pds_key, master_key, caption, collected_on, url
+        "SELECT rkey, cid, kind, file, pds_key, master_key, og_poster_key, caption, collected_on, url
          FROM specimens
          ORDER BY collected_on, rkey"
     )
@@ -51,6 +51,7 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
         file: row.file,
         pds_key: row.pds_key,
         master_key: row.master_key,
+        og_poster_key: row.og_poster_key,
         caption: row.caption,
         date: row.collected_on.format("%Y-%m-%d").to_string(),
         url: row.url,

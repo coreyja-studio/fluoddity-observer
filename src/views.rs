@@ -9,13 +9,23 @@ use crate::{
 
 const FONTS: &str = "https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Caveat:wght@400;600&display=swap";
 
+/// OpenGraph image with optional dimensions.
+pub struct OgImage {
+    pub url: String,
+    /// Pixel width, known for generated 1200x630 posters.
+    pub width: Option<u32>,
+    /// Pixel height, known for generated 1200x630 posters.
+    pub height: Option<u32>,
+}
+
 /// Per-page metadata for the head: title, description, and the OpenGraph
 /// card that unfurls when a page is shared (on Bluesky, most importantly).
 pub struct PageMeta {
     pub title: String,
     pub description: String,
-    /// Absolute image URL — CDN thumbnails work in every media mode.
-    pub image: Option<String>,
+    /// OG image — prefers a vault poster (own domain, 1200x630, no redirect);
+    /// falls back to a Bluesky CDN thumbnail when no poster has been generated.
+    pub image: Option<OgImage>,
     /// Site-relative path, joined with PCG_PUBLIC_URL for og:url.
     pub path: String,
 }
@@ -33,17 +43,61 @@ impl PageMeta {
     }
 }
 
-/// Absolute thumbnail for a specimen, for OG cards. Always a CDN URL —
-/// cards must resolve from anywhere, whatever the media mode.
-fn og_thumb(ctx: &Ctx, s: &Specimen) -> String {
-    let did = &ctx.catalog.editorial.artist.did;
-    match s.kind {
-        MediaKind::Video => format!("https://video.bsky.app/watch/{did}/{}/thumbnail.jpg", s.cid),
-        MediaKind::Image => format!(
-            "https://cdn.bsky.app/img/feed_fullsize/plain/{did}/{}@jpeg",
-            s.cid
-        ),
+/// Pure URL-construction for OG images. Extracted so it can be unit-tested
+/// without constructing a `Ctx`.
+fn og_image_url(
+    media_base: Option<&str>,
+    kind: MediaKind,
+    og_poster_key: Option<&str>,
+    rkey: &str,
+    cid: &str,
+    did: &str,
+) -> OgImage {
+    match kind {
+        MediaKind::Video => {
+            if og_poster_key.is_some() {
+                if let Some(base) = media_base {
+                    OgImage {
+                        url: format!("{base}/og/{rkey}.jpg"),
+                        width: Some(1200),
+                        height: Some(630),
+                    }
+                } else {
+                    OgImage {
+                        url: format!("https://video.bsky.app/watch/{did}/{cid}/thumbnail.jpg"),
+                        width: None,
+                        height: None,
+                    }
+                }
+            } else {
+                OgImage {
+                    url: format!("https://video.bsky.app/watch/{did}/{cid}/thumbnail.jpg"),
+                    width: None,
+                    height: None,
+                }
+            }
+        }
+        MediaKind::Image => OgImage {
+            url: format!("https://cdn.bsky.app/img/feed_fullsize/plain/{did}/{cid}@jpeg"),
+            width: None,
+            height: None,
+        },
     }
+}
+
+/// OG image for a specimen. Prefers a vault OG poster (own domain, no
+/// redirect, 1200x630) when one has been generated. Falls back to the
+/// Bluesky CDN thumbnail (may have redirect issues) otherwise.
+fn og_image(ctx: &Ctx, s: &Specimen) -> OgImage {
+    let did = &ctx.catalog.editorial.artist.did;
+    og_image_url(
+        ctx.media_base.as_deref(),
+        s.kind,
+        s.og_poster_key.as_deref(),
+        &s.rkey,
+        &s.cid,
+        did,
+    )
 }
 
 fn base(meta: PageMeta, body: Markup) -> Markup {
@@ -62,9 +116,15 @@ fn base(meta: PageMeta, body: Markup) -> Markup {
                 meta property="og:description" content=(meta.description);
                 meta property="og:url" content=(og_url);
                 @if let Some(image) = &meta.image {
-                    meta property="og:image" content=(image);
+                    meta property="og:image" content=(image.url);
+                    @if let Some(w) = image.width {
+                        meta property="og:image:width" content=(w);
+                    }
+                    @if let Some(h) = image.height {
+                        meta property="og:image:height" content=(h);
+                    }
                     meta name="twitter:card" content="summary_large_image";
-                    meta name="twitter:image" content=(image);
+                    meta name="twitter:image" content=(image.url);
                 }
                 meta name="twitter:title" content=(meta.title);
                 meta name="twitter:description" content=(meta.description);
@@ -155,7 +215,7 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
     let catalog = &ctx.catalog;
     let editorial = &catalog.editorial;
     let mut meta = PageMeta::new("Fluoddity — a field guide", "/");
-    meta.image = catalog.archive.all().last().map(|s| og_thumb(ctx, s));
+    meta.image = catalog.archive.all().last().map(|s| og_image(ctx, s));
     base(
         meta,
         html! {
@@ -280,7 +340,7 @@ pub fn archive(ctx: &Ctx) -> Markup {
         "The complete expedition record — {} specimens, chronological, every one with a permanent page.",
         specimens.len()
     );
-    meta.image = specimens.last().map(|s| og_thumb(ctx, s));
+    meta.image = specimens.last().map(|s| og_image(ctx, s));
     base(
         meta,
         html! {
@@ -373,7 +433,7 @@ pub fn specimen(
         crate::catalog::ellipsize(&s.caption.replace('\n', " "), 180),
         pretty_date(&s.date),
     );
-    meta.image = Some(og_thumb(ctx, s));
+    meta.image = Some(og_image(ctx, s));
     base(
         meta,
         html! {
@@ -503,7 +563,7 @@ pub fn thread_room(ctx: &Ctx, room: &ThreadRoom, plate: Option<usize>) -> Markup
         .entries
         .iter()
         .find_map(|e| ctx.catalog.archive.get(&e.specimen_rkey))
-        .map(|s| og_thumb(ctx, s));
+        .map(|s| og_image(ctx, s));
     base(
         meta,
         html! {
@@ -668,7 +728,7 @@ pub fn tag_page(ctx: &Ctx, tag: &str, kind: &str) -> Markup {
     } else {
         format!("{} specimens tagged “{}”.", members.len(), tag_display(tag))
     };
-    meta.image = members.first().map(|s| og_thumb(ctx, s));
+    meta.image = members.first().map(|s| og_image(ctx, s));
     base(
         meta,
         html! {
@@ -887,5 +947,79 @@ pub fn not_found() -> Markup {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn og_image_uses_vault_url_when_poster_key_set() {
+        let img = og_image_url(
+            Some("https://media.fluoddity.observer"),
+            MediaKind::Video,
+            Some("og/3mtest.jpg"),
+            "3mtest",
+            "bafytest",
+            "did:plc:artist",
+        );
+        assert_eq!(img.url, "https://media.fluoddity.observer/og/3mtest.jpg");
+        assert_eq!(img.width, Some(1200));
+        assert_eq!(img.height, Some(630));
+    }
+
+    #[test]
+    fn og_image_falls_back_to_bsky_cdn_without_poster_key() {
+        let img = og_image_url(
+            Some("https://media.fluoddity.observer"),
+            MediaKind::Video,
+            None,
+            "3mtest",
+            "bafytest",
+            "did:plc:artist",
+        );
+        assert_eq!(
+            img.url,
+            "https://video.bsky.app/watch/did:plc:artist/bafytest/thumbnail.jpg"
+        );
+        assert_eq!(img.width, None);
+        assert_eq!(img.height, None);
+    }
+
+    #[test]
+    fn og_image_falls_back_to_bsky_cdn_without_media_base() {
+        let img = og_image_url(
+            None,
+            MediaKind::Video,
+            Some("og/3mtest.jpg"),
+            "3mtest",
+            "bafytest",
+            "did:plc:artist",
+        );
+        assert_eq!(
+            img.url,
+            "https://video.bsky.app/watch/did:plc:artist/bafytest/thumbnail.jpg"
+        );
+        assert_eq!(img.width, None);
+        assert_eq!(img.height, None);
+    }
+
+    #[test]
+    fn og_image_uses_cdn_for_image_kind() {
+        let img = og_image_url(
+            Some("https://media.fluoddity.observer"),
+            MediaKind::Image,
+            None,
+            "3mtest",
+            "bafytest",
+            "did:plc:artist",
+        );
+        assert_eq!(
+            img.url,
+            "https://cdn.bsky.app/img/feed_fullsize/plain/did:plc:artist/bafytest@jpeg"
+        );
+        assert_eq!(img.width, None);
+        assert_eq!(img.height, None);
     }
 }

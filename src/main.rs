@@ -246,6 +246,7 @@ async fn main() -> anyhow::Result<()> {
         Some("refresh-notes") => refresh_notes(pool).await,
         Some("harvest-once") => harvest_once(pool).await,
         Some("classify-dimensions") => classify_dimensions(pool).await,
+        Some("gen-posters") => gen_posters(pool).await,
         Some("bot-once") => bot_once(pool).await,
         Some("bot-weekly") => bot_weekly(pool).await,
         Some("gen-oauth-key") => {
@@ -253,7 +254,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Some(other) => anyhow::bail!(
-            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `harvest-once`, `classify-dimensions`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
+            "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `harvest-once`, `classify-dimensions`, `gen-posters`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
     }
 }
@@ -316,6 +317,179 @@ async fn classify_dimensions(pool: PgPool) -> anyhow::Result<()> {
     let added = dimensions::classify_archive(&pool).await?;
     tracing::info!(added, "dimension classification complete");
     Ok(())
+}
+
+/// Generate 1200x630 OG poster JPEGs for all video specimens, using ffmpeg
+/// to extract a mid-clip frame. Uploads to the Bunny vault under og/{rkey}.jpg
+/// and records the key. Run on the local VM (where ffmpeg + media files live).
+/// Pass `--force` to regenerate all posters (default: only specimens without
+/// og_poster_key).
+async fn gen_posters(pool: PgPool) -> anyhow::Result<()> {
+    let force = std::env::args().any(|a| a == "--force" || a == "-f");
+    let media_dir = media_dir();
+    let og_dir = format!("{media_dir}/og");
+    tokio::fs::create_dir_all(&og_dir).await?;
+
+    // Bunny vault: file uploads use the zone-scoped password (NOT the account
+    // API key). BunnyConfig::from_env() reads PCG_BUNNY_STORAGE_ZONE/KEY.
+    let client = reqwest::Client::builder()
+        .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
+        .build()?;
+    let bunny = storage::BunnyConfig::from_env();
+    if bunny.is_none() {
+        tracing::info!("vault upload disabled — PCG_BUNNY_STORAGE_ZONE/KEY unset");
+    }
+
+    let meta = sqlx::query!("SELECT artist_did FROM gallery_meta")
+        .fetch_one(&pool)
+        .await?;
+
+    // A single query with a `force` bind avoids the `sqlx::query!` macro
+    // generating two distinct anonymous `Record` types (one per call site,
+    // which won't unify across an if/else).
+    let rows = sqlx::query!(
+        "SELECT rkey, cid, file, og_poster_key FROM specimens
+         WHERE kind = 'video' AND ($1 OR og_poster_key IS NULL)
+         ORDER BY collected_on, rkey",
+        force,
+    )
+    .fetch_all(&pool)
+    .await?;
+    tracing::info!(count = rows.len(), force, "specimens to process");
+
+    let mut generated = 0usize;
+    let mut uploaded = 0usize;
+    let mut failed = 0usize;
+
+    for row in &rows {
+        let rkey = &row.rkey;
+        let poster_path = format!("{og_dir}/{rkey}.jpg");
+
+        let hls = format!(
+            "https://video.bsky.app/watch/{}/{}/playlist.m3u8",
+            meta.artist_did, row.cid
+        );
+        let source = match &row.file {
+            Some(file) => {
+                let local = format!("{media_dir}/{file}");
+                if std::path::Path::new(&local).exists() {
+                    local
+                } else {
+                    tracing::info!(%rkey, "local file missing, falling back to HLS");
+                    hls
+                }
+            }
+            None => hls,
+        };
+
+        let duration = ffprobe_duration(&source).await.unwrap_or(2.0);
+        let midpoint = (duration / 2.0).max(0.5);
+
+        // .kill_on_drop(true) prevents orphaned ffmpeg processes on cancel/panic.
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tokio::process::Command::new("ffmpeg")
+                .kill_on_drop(true)
+                .arg("-y")
+                .arg("-ss")
+                .arg(format!("{midpoint:.1}"))
+                .arg("-i")
+                .arg(&source)
+                .arg("-frames:v")
+                .arg("1")
+                .arg("-vf")
+                .arg("scale=1200:630:force_original_aspect_ratio=increase,crop=1200:630")
+                .arg("-q:v")
+                .arg("2")
+                .arg(&poster_path)
+                .output(),
+        )
+        .await;
+
+        match output {
+            Ok(Ok(o)) if o.status.success() => {
+                generated += 1;
+                let vault_key = format!("og/{rkey}.jpg");
+                if let Some(bunny) = &bunny {
+                    match bunny
+                        .put_file(&client, &vault_key, std::path::Path::new(&poster_path))
+                        .await
+                    {
+                        Ok(()) => {
+                            sqlx::query!(
+                                "UPDATE specimens SET og_poster_key = $1 WHERE rkey = $2",
+                                vault_key,
+                                rkey,
+                            )
+                            .execute(&pool)
+                            .await?;
+                            uploaded += 1;
+                        }
+                        Err(err) => {
+                            tracing::warn!(?err, %rkey, "vault upload failed");
+                            failed += 1;
+                        }
+                    }
+                } else {
+                    // No vault: still record that a 1200x630 poster was generated.
+                    sqlx::query!(
+                        "UPDATE specimens SET og_poster_key = $1 WHERE rkey = $2",
+                        vault_key,
+                        rkey,
+                    )
+                    .execute(&pool)
+                    .await?;
+                }
+            }
+            Ok(Ok(o)) => {
+                tracing::warn!(
+                    %rkey,
+                    stderr = %String::from_utf8_lossy(&o.stderr),
+                    "ffmpeg failed"
+                );
+                failed += 1;
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(?err, %rkey, "ffmpeg spawn failed");
+                failed += 1;
+            }
+            Err(_) => {
+                tracing::warn!(%rkey, "ffmpeg timed out after 30s");
+                failed += 1;
+            }
+        }
+    }
+
+    tracing::info!(generated, uploaded, failed, "gen-posters complete");
+    if failed > 0 {
+        anyhow::bail!("{failed} poster(s) failed — rerun to retry");
+    }
+    Ok(())
+}
+
+/// Probe video duration in seconds via ffprobe.
+async fn ffprobe_duration(source: &str) -> anyhow::Result<f64> {
+    // .output() drains both stdout and stderr fully — no pipe-buffer deadlock.
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        tokio::process::Command::new("ffprobe")
+            .kill_on_drop(true)
+            .arg("-v")
+            .arg("error")
+            .arg("-show_entries")
+            .arg("format=duration")
+            .arg("-of")
+            .arg("csv=p=0")
+            .arg(source)
+            .output(),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("ffprobe timed out after 15s"))??;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .trim()
+        .parse::<f64>()
+        .map_err(|e| anyhow::anyhow!("parsing ffprobe duration: {e}"))
 }
 
 /// One manual suggestion harvest across the whole archive.
@@ -744,6 +918,7 @@ mod tests {
             file: None,
             pds_key: pds_key.map(str::to_string),
             master_key: master_key.map(str::to_string),
+            og_poster_key: None,
             caption: "A specimen".into(),
             date: "2026-06-04".into(),
             url: "https://example.test".into(),
