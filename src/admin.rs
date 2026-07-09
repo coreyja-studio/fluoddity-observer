@@ -576,7 +576,10 @@ pub async fn specimens_page(
     State(state): State<SharedState>,
     curator: Curator,
 ) -> Result<Markup, AdminError> {
-    let catalog = db::load_catalog(&state.pool).await?;
+    // A full Ctx (not just the catalog) so thumbnails resolve through the
+    // exact same path the public grids use — CDN vs local, video poster vs
+    // image thumbnail — instead of reinventing the URL logic here.
+    let ctx = state.ctx().await?;
     Ok(admin_base(
         "Specimens",
         html! {
@@ -588,18 +591,22 @@ pub async fn specimens_page(
             section {
                 h2 .room-label { "All Specimens" }
                 p .room-sublabel {
-                    "check the box beside any specimen to take it down from the gallery — "
-                    "removed specimens disappear from every public surface and survive re-ingest"
+                    "check any specimen to take it down from the gallery — removed "
+                    "specimens disappear from every public surface and survive re-ingest. "
+                    "Click a thumbnail to toggle it; open its label to inspect the specimen."
                 }
                 form method="post" action="/admin/specimens/batch-remove" .admin-form {
-                    @for s in catalog.archive.all().iter().rev() {
-                        div .admin-specimen {
-                            label {
+                    div .audit-grid {
+                        @for s in ctx.catalog.archive.all().iter().rev() {
+                            label .audit-card {
                                 input type="checkbox" name="rkeys" value=(s.rkey);
-                                " "
-                                a href=(format!("/specimen/{}", s.rkey)) { (s.label()) }
+                                img .audit-thumb src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
+                                span .audit-label { (s.label()) }
+                                span .admin-date {
+                                    (s.date)
+                                    " · " a href=(format!("/specimen/{}", s.rkey)) target="_blank" rel="noopener" { "open ↗" }
+                                }
                             }
-                            span .admin-date { (s.date) }
                         }
                     }
                     button type="submit" { "remove selected from gallery" }
