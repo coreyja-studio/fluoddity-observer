@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE specimens SET og_poster_key = $1 WHERE rkey = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1cc4ca62f62ab7741934aa8ce68cf318aef336b1dab66e80d47dba69a27273d8"
+}

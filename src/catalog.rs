@@ -101,6 +101,9 @@ pub struct Specimen {
     /// Vault key (masters/…) of the render-node master the artist uploaded;
     /// beats the PDS copy wherever full quality is served.
     pub master_key: Option<String>,
+    /// Vault key (og/{rkey}.jpg) for the generated 1200x630 OG poster;
+    /// None until `gen-posters` has extracted and uploaded it.
+    pub og_poster_key: Option<String>,
     pub caption: String,
     /// ISO date (YYYY-MM-DD) the post was collected.
     pub date: String,
@@ -393,6 +396,7 @@ mod tests {
             file: None,
             pds_key: None,
             master_key: None,
+            og_poster_key: None,
             caption: caption.into(),
             date: "2026-06-04".into(),
             url: "https://example.test".into(),
