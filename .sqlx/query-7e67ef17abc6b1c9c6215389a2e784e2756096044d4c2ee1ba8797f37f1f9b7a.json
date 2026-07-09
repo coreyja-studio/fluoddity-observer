@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT rkey, cid, kind, file, pds_key, master_key, og_poster_key, caption, collected_on, url\n         FROM specimens\n         ORDER BY collected_on, rkey",
+  "query": "SELECT rkey, cid, kind, file, pds_key, master_key, og_poster_key, caption, collected_on, url\n         FROM specimens\n         WHERE removed_at IS NULL\n         ORDER BY collected_on, rkey",
   "describe": {
     "columns": [
       {
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "b652a7fd2cc5762f6d2f24339404a93643edad61af128082ef7b28e84f0534f0"
+  "hash": "7e67ef17abc6b1c9c6215389a2e784e2756096044d4c2ee1ba8797f37f1f9b7a"
 }

@@ -81,6 +81,48 @@
 
 .admin-date { font-size: 0.85rem; color: var(--ink-soft); font-style: italic; }
 
+/* The curation grid: thumbnails big enough to audit at a glance, each its
+   own checkbox target so a curator can sweep memes without clicking in. */
+.audit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.9rem;
+  margin: 1rem 0 1.4rem;
+}
+
+.audit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(138, 122, 92, 0.4);
+  border-radius: 4px;
+  background: rgba(255, 253, 245, 0.5);
+  cursor: pointer;
+}
+
+.audit-card:hover { background: #fffdf5; }
+
+/* Checked specimens are the ones about to be removed — mark them plainly. */
+.audit-card:has(input:checked) {
+  border-color: #a3423a;
+  background: rgba(163, 66, 58, 0.12);
+}
+
+.audit-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 3px;
+  background: rgba(138, 122, 92, 0.15);
+}
+
+.audit-label {
+  font-size: 0.9rem;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
 .room-create { max-width: 760px; margin: 1.4rem auto; }
 
 .unhung-list { max-width: 760px; margin: 0 auto; }
