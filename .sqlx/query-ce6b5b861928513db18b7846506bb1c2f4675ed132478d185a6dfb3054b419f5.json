@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT rkey, caption, collected_on, removed_at, removed_by\n         FROM specimens\n         WHERE removed_at IS NOT NULL\n         ORDER BY removed_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rkey",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "caption",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "collected_on",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 3,
+        "name": "removed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "removed_by",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "ce6b5b861928513db18b7846506bb1c2f4675ed132478d185a6dfb3054b419f5"
+}

@@ -5,7 +5,7 @@ use sqlx::PgPool;
 
 use crate::catalog::{
     Archive, Artist, Catalog, Editorial, MarginNote, MediaKind, Origin, Specimen, SpecimenImage,
-    Tag,
+    Tag, ellipsize, pretty_date,
 };
 
 /// Load the full catalog (archive + editorial layer) from the database.
@@ -38,6 +38,7 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
     let specimens = sqlx::query!(
         "SELECT rkey, cid, kind, file, pds_key, master_key, caption, collected_on, url
          FROM specimens
+         WHERE removed_at IS NULL
          ORDER BY collected_on, rkey"
     )
     .fetch_all(pool)
@@ -100,6 +101,52 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
             margin_notes,
         },
     })
+}
+
+/// A specimen that has been taken down from the gallery. Kept in the DB so
+/// ingest can't resurrect it; restorable by clearing `removed_at`.
+pub struct RemovedSpecimen {
+    pub rkey: String,
+    pub caption: String,
+    /// ISO date (YYYY-MM-DD).
+    pub date: String,
+    pub removed_at: chrono::DateTime<chrono::Utc>,
+    pub removed_by: Option<String>,
+}
+
+impl RemovedSpecimen {
+    /// Grid label, mirroring `Specimen::label()` (`src/catalog.rs:247`).
+    pub fn label(&self) -> String {
+        let first_line = self.caption.lines().next().unwrap_or("").trim();
+        if first_line.is_empty() {
+            return format!("Untitled · {}", pretty_date(&self.date));
+        }
+        ellipsize(first_line, 48)
+    }
+}
+
+/// All specimens currently removed from the gallery, newest removals first.
+pub async fn load_removed_specimens(pool: &PgPool) -> anyhow::Result<Vec<RemovedSpecimen>> {
+    Ok(sqlx::query!(
+        "SELECT rkey, caption, collected_on, removed_at, removed_by
+         FROM specimens
+         WHERE removed_at IS NOT NULL
+         ORDER BY removed_at DESC"
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|row| RemovedSpecimen {
+        rkey: row.rkey,
+        caption: row.caption,
+        date: row.collected_on.format("%Y-%m-%d").to_string(),
+        // removed_at is NOT NULL because of the WHERE clause, but sqlx::query!
+        // infers Option from the column's nullability, not the WHERE clause.
+        // The .expect() is safe because the WHERE clause is in the same query.
+        removed_at: row.removed_at.expect("filtered to NOT NULL"),
+        removed_by: row.removed_by,
+    })
+    .collect())
 }
 
 /// One row of the archive pull's metadata.jsonl. Image posts carry one row
@@ -394,5 +441,101 @@ mod tests {
         assert_eq!(catalog.tagged("jelly-line").len(), 2);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[sqlx::test]
+    async fn load_catalog_excludes_removed_specimens(pool: PgPool) {
+        sqlx::query!(
+            "INSERT INTO gallery_meta
+                 (only_row, artist_handle, artist_did, artist_name,
+                  origin_handle, origin_text, origin_url)
+             VALUES (TRUE, 'a.test', 'did:plc:a', 'A', 'o', 'wish', 'u')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO specimens (rkey, cid, caption, collected_on, url)
+             VALUES ('3ma', 'bafy-a', 'Jellyfish!', '2026-06-04', 'https://x'),
+                    ('3mb', 'bafy-b', 'Party hats', '2026-06-05', 'https://y')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let catalog = load_catalog(&pool).await.unwrap();
+        assert_eq!(catalog.archive.len(), 2);
+
+        sqlx::query!(
+            "UPDATE specimens SET removed_at = now(), removed_by = 'did:plc:curator'
+             WHERE rkey = '3ma'"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let catalog = load_catalog(&pool).await.unwrap();
+        assert_eq!(catalog.archive.len(), 1);
+        assert!(catalog.archive.get("3ma").is_none());
+        assert!(catalog.archive.get("3mb").is_some());
+
+        let removed = load_removed_specimens(&pool).await.unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].rkey, "3ma");
+        assert_eq!(removed[0].removed_by.as_deref(), Some("did:plc:curator"));
+        assert_eq!(removed[0].label(), "Jellyfish!");
+    }
+
+    #[sqlx::test]
+    async fn restore_round_trips(pool: PgPool) {
+        sqlx::query!(
+            "INSERT INTO gallery_meta
+                 (only_row, artist_handle, artist_did, artist_name,
+                  origin_handle, origin_text, origin_url)
+             VALUES (TRUE, 'a.test', 'did:plc:a', 'A', 'o', 'wish', 'u')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "INSERT INTO specimens (rkey, cid, caption, collected_on, url)
+             VALUES ('3ma', 'bafy-a', 'Jellyfish!', '2026-06-04', 'https://x')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query!(
+            "UPDATE specimens SET removed_at = now(), removed_by = 'did:plc:curator'
+             WHERE rkey = '3ma'"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            load_catalog(&pool)
+                .await
+                .unwrap()
+                .archive
+                .get("3ma")
+                .is_none()
+        );
+
+        sqlx::query!(
+            "UPDATE specimens SET removed_at = NULL, removed_by = NULL
+             WHERE rkey = '3ma'"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            load_catalog(&pool)
+                .await
+                .unwrap()
+                .archive
+                .get("3ma")
+                .is_some()
+        );
+        assert!(load_removed_specimens(&pool).await.unwrap().is_empty());
     }
 }

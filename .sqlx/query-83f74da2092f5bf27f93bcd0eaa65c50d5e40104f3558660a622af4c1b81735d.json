@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE specimens SET removed_at = NULL, removed_by = NULL\n             WHERE rkey = '3ma'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "83f74da2092f5bf27f93bcd0eaa65c50d5e40104f3558660a622af4c1b81735d"
+}

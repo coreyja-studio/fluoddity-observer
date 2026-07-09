@@ -294,4 +294,67 @@ mod tests {
         assert_eq!(stills.kind, crate::catalog::MediaKind::Image);
         assert_eq!(stills.images.len(), 2);
     }
+
+    #[sqlx::test]
+    async fn poll_does_not_resurrect_removed_specimen(pool: PgPool) {
+        sqlx::query!(
+            "INSERT INTO gallery_meta
+                 (only_row, artist_handle, artist_did, artist_name,
+                  origin_handle, origin_text, origin_url)
+             VALUES (TRUE, $1, $2, 'Test', 'w', 'wish', 'u')",
+            ARTIST_HANDLE,
+            ARTIST_DID,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query!(
+            "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)
+             VALUES ('3mpkvz63rxs2g', 'bafy-old', 'video', 'Original', '2026-07-01', 'https://x')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query!(
+            "UPDATE specimens SET removed_at = now(), removed_by = 'did:plc:curator'
+             WHERE rkey = '3mpkvz63rxs2g'"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Simulate the insert phase of poll_once — the same rkey appears in
+        // the feed, but ON CONFLICT (rkey) DO NOTHING means it stays removed.
+        let discovered = parse_feed(&fixture(), ARTIST_DID, ARTIST_HANDLE);
+        for d in &discovered {
+            if d.rkey != "3mpkvz63rxs2g" {
+                continue;
+            }
+            let collected_on =
+                chrono::NaiveDate::parse_from_str(&d.collected_on, "%Y-%m-%d").unwrap();
+            sqlx::query!(
+                "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)
+                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (rkey) DO NOTHING",
+                d.rkey,
+                d.cid,
+                d.kind,
+                d.caption,
+                collected_on,
+                d.url,
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let catalog = crate::db::load_catalog(&pool).await.unwrap();
+        assert!(
+            catalog.archive.get("3mpkvz63rxs2g").is_none(),
+            "removed specimen must not reappear in catalog after ingest"
+        );
+        let removed = crate::db::load_removed_specimens(&pool).await.unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].rkey, "3mpkvz63rxs2g");
+    }
 }

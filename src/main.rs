@@ -480,6 +480,19 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         )
         .route("/admin/tags/add", axum::routing::post(admin::add_tag))
         .route("/admin/tags/remove", axum::routing::post(admin::remove_tag))
+        .route("/admin/specimens", get(admin::specimens_page))
+        .route(
+            "/admin/specimens/remove",
+            axum::routing::post(admin::remove_specimen),
+        )
+        .route(
+            "/admin/specimens/batch-remove",
+            axum::routing::post(admin::batch_remove_specimens),
+        )
+        .route(
+            "/admin/specimens/restore",
+            axum::routing::post(admin::restore_specimen),
+        )
         .route("/admin/masters", get(admin::masters_page))
         .route(
             "/admin/masters/upload",

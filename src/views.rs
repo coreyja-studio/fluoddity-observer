@@ -461,6 +461,10 @@ pub fn specimen(
                             }
                             button type="submit" { "tag it" }
                         }
+                        form method="post" action="/admin/specimens/remove" .inline-form {
+                            input type="hidden" name="rkey" value=(s.rkey);
+                            button type="submit" .link-button title="remove from gallery" { "remove from gallery" }
+                        }
                     }
                 }
 

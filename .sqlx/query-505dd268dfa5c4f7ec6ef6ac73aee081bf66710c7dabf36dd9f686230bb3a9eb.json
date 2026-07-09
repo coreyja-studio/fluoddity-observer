@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT rkey, caption FROM specimens WHERE collected_on BETWEEN $1 AND $2",
+  "query": "SELECT rkey, caption FROM specimens\n         WHERE collected_on BETWEEN $1 AND $2 AND removed_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       false
     ]
   },
-  "hash": "9a44f0888552955d3567e7a21dffedfa8afdc193f82d12e192405037fefbe4d5"
+  "hash": "505dd268dfa5c4f7ec6ef6ac73aee081bf66710c7dabf36dd9f686230bb3a9eb"
 }
