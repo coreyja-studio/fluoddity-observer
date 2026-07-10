@@ -195,6 +195,16 @@ impl AppState {
             media_base: self.media_base.clone(),
         })
     }
+
+    /// Whether a thread is on the room registry. Room URLs carry the
+    /// author's handle, but registry rows store both handle and DID —
+    /// accept either so old links keep working after a handle change.
+    async fn room_is_registered(&self, author: &str, rkey: &str) -> anyhow::Result<bool> {
+        Ok(db::thread_rooms(&self.pool)
+            .await?
+            .iter()
+            .any(|r| r.rkey == rkey && (r.author_handle == author || r.author_did == author)))
+    }
 }
 
 /// Anyhow-backed handler error that renders as a plain 500.
@@ -704,8 +714,14 @@ async fn index(State(state): State<SharedState>) -> Result<maud::Markup, AppErro
 async fn thread_room(
     State(state): State<SharedState>,
     Path((author, rkey)): Path<(String, String)>,
+    curator: Option<auth::Curator>,
 ) -> Result<Response, AppError> {
     let ctx = state.ctx().await?;
+    // Only registered rooms are public; curators can still preview a
+    // suggested thread before hanging it.
+    if curator.is_none() && !state.room_is_registered(&author, &rkey).await? {
+        return Ok(not_found());
+    }
     let artist = &ctx.catalog.editorial.artist;
     let Some(room) = state
         .threads
@@ -753,6 +769,7 @@ struct AmbientParams {
 async fn ambient(
     State(state): State<SharedState>,
     axum::extract::Query(params): axum::extract::Query<AmbientParams>,
+    curator: Option<auth::Curator>,
 ) -> Result<Response, AppError> {
     let ctx = state.ctx().await?;
     let (title, specimens): (String, Vec<&catalog::Specimen>) = if let Some(tag) = &params.tag {
@@ -761,6 +778,10 @@ async fn ambient(
         let Some((author, rkey)) = room_ref.split_once('/') else {
             return Ok(not_found());
         };
+        // Same registry gate as /room/ — unregistered threads don't project.
+        if curator.is_none() && !state.room_is_registered(author, rkey).await? {
+            return Ok(not_found());
+        }
         let artist = &ctx.catalog.editorial.artist;
         let Some(room) = state
             .threads

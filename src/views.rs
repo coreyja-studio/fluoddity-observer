@@ -222,6 +222,13 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
             main .sheet {
                 (page_header(ctx, "Frontispiece"))
 
+                p .follow-line {
+                    "new sightings surface on Bluesky first — "
+                    a href=(format!("https://bsky.app/profile/{}", editorial.artist.handle)) {
+                        "follow the expedition: @" (editorial.artist.handle) " →"
+                    }
+                }
+
                 section .contents {
                     h2 .room-label { "Contents · The Rooms" }
                     p .room-sublabel {
@@ -318,6 +325,8 @@ pub fn index(ctx: &Ctx, rooms: &[HungRoom]) -> Markup {
 
                 footer .colophon-link {
                     a href="/colophon" { "colophon — why this guide exists, and whose wish began it" }
+                    br;
+                    a .curators-door href="/admin" { "the curators' door" }
                 }
             }
         },
