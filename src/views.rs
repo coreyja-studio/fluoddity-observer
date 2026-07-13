@@ -1,3 +1,8 @@
+//! Every public page, as Maud templates — the field-guide visual language
+//! (engraved plates, wall labels, the notebook page-turn) lives here and in
+//! `static/style.css`. Templates are functions of already-loaded data; no
+//! handler logic or data access. Admin pages render in `admin.rs`.
+
 use maud::{DOCTYPE, Markup, html};
 
 use crate::{

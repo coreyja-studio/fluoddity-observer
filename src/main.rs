@@ -1,3 +1,8 @@
+//! The whole gallery is one binary: this file owns the CLI subcommands
+//! (`serve` is the default; `import`, `ingest-once`, `bot-once`, … are
+//! operator tools), the shared app state, and the router. Page rendering
+//! lives in `views.rs`; background work is registered in `cron.rs`.
+
 mod admin;
 mod auth;
 mod backup;

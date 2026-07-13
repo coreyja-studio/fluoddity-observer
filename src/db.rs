@@ -1,3 +1,8 @@
+//! Postgres is the source of truth; this module is the bridge between it
+//! and the `catalog` types. `load_catalog` assembles the full in-memory
+//! snapshot the pages render from; `import` is the idempotent seed from the
+//! flat-file era (`metadata.jsonl` + `catalog.json`) and safe to re-run.
+
 use std::collections::HashMap;
 
 use anyhow::Context;
