@@ -51,11 +51,43 @@ tokens). Curators register rooms, tag specimens, and work the suggestion box.
 
 ## Media
 
-`PCG_MEDIA_MODE` picks the strategy: `local` serves files from
+`PCG_MEDIA_MODE` picks the baseline: `local` serves files from
 `PCG_MEDIA_DIR`; `cdn` (production) hotlinks the Bluesky CDNs — HLS video
 via `video.bsky.app` playlists (hls.js outside Safari), stills from
-`cdn.bsky.app`. In `cdn` mode the site hosts no media at all, which is also
-the takedown story: nothing is re-hosted.
+`cdn.bsky.app`.
+
+### The vault
+
+Bluesky's CDN recompresses aggressively, so the museum keeps its own copies
+(`storage.rs`): a Bunny Storage zone holding three key families —
+
+- **`pds/{archive filename}`** — full-rate originals pulled from the
+  artist's PDS. `cargo run -- pull-media` syncs any specimen the vault is
+  missing and records the key on the specimen row.
+- **`masters/{rkey}.{ext}`** — render-node masters uploaded by the artist
+  (or a curator on his behalf) at `/admin/masters`. That page is the
+  *desiderata list*: every video specimen the vault holds no master for,
+  each with an upload slot. One key per specimen; re-upload replaces.
+  Uploads are curator-gated, capped at 2 GiB, and whitelisted to
+  mp4/mov/webm — Bunny types objects by file extension, so only extensions
+  browsers can play get in.
+- **`og/{rkey}.jpg`** — generated 1200×630 OpenGraph posters (mid-clip
+  ffmpeg frame), produced by the `gen-posters` subcommand.
+
+A Bunny pull zone in front serves the vault at `PCG_MEDIA_BASE_URL`.
+**Serving preference per specimen: master → PDS original → Bluesky CDN.**
+The archive grid keeps the CDN's grid-friendly encodes; the specimen page
+and behold mode swap in the vault's archival copy when one is held, and OG
+cards prefer the own-domain vault poster.
+
+Config: `PCG_BUNNY_STORAGE_ZONE` + `PCG_BUNNY_STORAGE_KEY` (the storage
+zone's read-write password — not the account API key), optional
+`PCG_BUNNY_STORAGE_ENDPOINT` for non-default regions. Unset disables the
+vault entirely and everything falls back to the Bluesky CDNs.
+
+The takedown story is unchanged in spirit: vault contents are the museum's
+own preservation copies of work the artist published, held with his
+blessing, and deleted on his word like everything else.
 
 ## Background work
 

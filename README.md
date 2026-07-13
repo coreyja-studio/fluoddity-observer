@@ -103,6 +103,9 @@ The system is yours; the guide knows it.
   Bluesky without ever visiting the site.
 - **Your threads are the museum's plates.** Registered artist threads are
   the first-class rooms on the front page, numbered like engravings.
+- **The museum keeps originals.** Bluesky's CDN recompresses; the vault
+  cold-stores full-rate copies pulled from your PDS, and the curator's desk
+  has a slot per specimen for your render-node masters — better still.
 - The rooms and lineages here are a provisional survey assembled from your
   own vocabulary. The guide expects to be corrected — curation is visible
   by design, and wall labels always say who selected what.
@@ -121,7 +124,12 @@ thread as a room is permissionless; the homepage registry is curated.
 
 Rust (Axum + Maud + SQLx/Postgres), server-rendered, no client framework.
 Media serves from the Bluesky CDNs in hosted mode (HLS video via hls.js,
-stills from the image CDN) — the site hosts no media. Background work
+stills from the image CDN), with an optional **vault** — a Bunny Storage
+zone of preservation copies: full-rate originals pulled from the artist's
+PDS (`pull-media`), render-node masters uploaded at `/admin/masters`, and
+generated OG posters. When the vault holds a copy, specimen pages serve it
+in preference order master → PDS original → Bluesky CDN; details in
+[docs/architecture.md](docs/architecture.md). Background work
 (ingest polling, suggestion harvest, margin-note refresh, bot mentions,
 weekly wrap-up) runs on the cja cron + durable-job system with retries and
 a dead-letter queue.
@@ -135,15 +143,17 @@ cargo run                 # serve on :4601
 ```
 
 Subcommands: `serve` (default), `import`, `ingest-once`, `harvest-once`,
-`pull-media`, `refresh-notes`, `classify-dimensions`, `bot-once`,
-`bot-weekly`, `gen-oauth-key`.
+`pull-media`, `refresh-notes`, `classify-dimensions`, `gen-posters`,
+`bot-once`, `bot-weekly`, `gen-oauth-key`.
 
 | var | default | meaning |
 |---|---|---|
 | `PCG_PORT` | `4601` | listen port |
 | `DATABASE_URL` | (required) | Postgres connection string (see `.mise.toml`) |
-| `PCG_MEDIA_MODE` | `local` | `local` (files from `PCG_MEDIA_DIR`) or `cdn` (Bluesky CDNs, nothing hosted) |
+| `PCG_MEDIA_MODE` | `local` | `local` (files from `PCG_MEDIA_DIR`) or `cdn` (Bluesky CDNs + vault) |
 | `PCG_MEDIA_DIR` | — | local media archive, for `local` mode and `pull-media` |
+| `PCG_MEDIA_BASE_URL` | — | Bunny pull-zone URL serving the vault; unset = Bluesky CDNs only |
+| `PCG_BUNNY_STORAGE_ZONE` / `PCG_BUNNY_STORAGE_KEY` | — | vault storage zone + its read-write password; unset = vault uploads disabled |
 | `PCG_POLL_SECS` | `300` | ingest poll interval; `0` disables |
 | `PCG_PUBLIC_URL` | — | hosted base URL (enables confidential OAuth; links in bot replies) |
 | `PCG_ADMIN_DIDS` | — | comma-separated `did[=handle]` curator roster seed |
