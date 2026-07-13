@@ -1,3 +1,8 @@
+//! The domain vocabulary: specimens, the archive, and the editorial layer
+//! (rooms, lineages, tags, margin notes). Everything here is plain data —
+//! loading lives in `db.rs`, rendering in `views.rs`. The one hard rule is
+//! carried by `Specimen`: the artist's caption is preserved verbatim, always.
+
 use std::collections::HashMap;
 
 use serde::Deserialize;

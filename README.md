@@ -171,3 +171,12 @@ GitHub Actions: fmt, clippy (`-D warnings`), SQLx prepare-check + tests
 against a Postgres service, cargo-deny, conventional-commit PR titles, and
 a `ready` aggregator. Pushes to `main` deploy to Fly. When queries change:
 `cargo sqlx prepare -- --all-targets` and commit `.sqlx`.
+
+## License
+
+The code is licensed under [Apache-2.0](LICENSE).
+
+The art is not the code: every video, image, and caption belongs to
+[Oops! All Paperclips](https://bsky.app/profile/all-paperclips.bsky.social).
+The gallery renders his work from Bluesky's own CDNs and hosts none of it;
+nothing in this repository grants any rights to the artwork.
