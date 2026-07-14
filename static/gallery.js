@@ -41,6 +41,78 @@
     });
   }
 
+  // Archive grid: play a specimen's loop on hover, one at a time. Each
+  // video thumb carries data-preview-src (and data-preview-hls in CDN mode)
+  // on its .archive-thumb wrapper; the still poster holds until the pointer
+  // arrives, then a muted loop fades in over it and tears down on leave —
+  // so the grid never decodes more than the single clip under the cursor.
+  (function setupHoverPreviews() {
+    var thumbs = document.querySelectorAll(".archive-thumb[data-preview-src]");
+    if (!thumbs.length) return;
+    // Coarse pointers (touch) have no hover — a tap just follows the link.
+    if (window.matchMedia && window.matchMedia("(hover: none)").matches) return;
+
+    var active = null; // the one thumb previewing right now
+
+    function stop(thumb) {
+      var video = thumb && thumb._previewVideo;
+      if (!video) return;
+      if (video._hls) {
+        video._hls.destroy();
+        delete video._hls;
+      }
+      video.pause();
+      video.remove();
+      delete thumb._previewVideo;
+      if (active === thumb) active = null;
+    }
+
+    function start(thumb) {
+      if (thumb._previewVideo) return;
+      if (active) stop(active); // only one loop plays at a time
+      active = thumb;
+
+      var video = document.createElement("video");
+      video.className = "archive-preview";
+      video.muted = true;
+      video.loop = true;
+      video.setAttribute("playsinline", "");
+      video.preload = "metadata";
+      // Reveal only once a frame exists, so we never flash an empty box.
+      video.addEventListener("loadeddata", function () {
+        video.classList.add("ready");
+      });
+      thumb._previewVideo = video;
+
+      var hlsUrl = thumb.dataset.previewHls;
+      if (
+        hlsUrl &&
+        !video.canPlayType("application/vnd.apple.mpegurl") &&
+        window.Hls &&
+        window.Hls.isSupported()
+      ) {
+        var hls = new window.Hls({ capLevelToPlayerSize: true });
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+        video._hls = hls;
+      } else {
+        video.src = thumb.dataset.previewSrc;
+      }
+
+      thumb.appendChild(video);
+      video.play().catch(function () {});
+    }
+
+    thumbs.forEach(function (thumb) {
+      thumb.addEventListener("pointerenter", function () {
+        start(thumb);
+      });
+      thumb.addEventListener("pointerleave", function () {
+        stop(thumb);
+      });
+    });
+  })();
+
   // Behold: click a specimen and the notebook falls away.
   var behold = document.getElementById("behold");
   if (!behold) return;

@@ -386,7 +386,7 @@ pub fn archive(ctx: &Ctx) -> Markup {
                         div .archive-grid {
                             @for s in list {
                                 a .archive-item href=(format!("/specimen/{}", s.rkey)) {
-                                    img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
+                                    (archive_thumb(ctx, s))
                                     span .archive-label { (s.label()) }
                                     span .archive-date { (pretty_date(&s.date)) }
                                 }
@@ -401,6 +401,26 @@ pub fn archive(ctx: &Ctx) -> Markup {
             }
         },
     )
+}
+
+/// A single archive-grid thumbnail. The still poster shows by default;
+/// video specimens also carry `data-preview-*` so the grid can play the
+/// loop on pointer-hover, one at a time (see `static/gallery.js`). Grid
+/// previews stay on the cheap CDN re-encode — behold and ambient earn the
+/// vault master, a grid of hover loops does not.
+fn archive_thumb(ctx: &Ctx, s: &Specimen) -> Markup {
+    let preview = match s.kind {
+        MediaKind::Video => Some(ctx.video_sources(s)),
+        MediaKind::Image => None,
+    };
+    html! {
+        span .archive-thumb
+            data-preview-src=[preview.as_ref().map(|(src, _, _)| src)]
+            data-preview-hls=[preview.as_ref().and_then(|(_, hls, _)| hls.as_ref())]
+        {
+            img src=(ctx.thumb(s)) alt=(s.label()) loading="lazy";
+        }
+    }
 }
 
 fn lineage_strip(ctx: &Ctx, tag: &str, current_rkey: &str) -> Markup {
@@ -971,6 +991,92 @@ pub fn not_found() -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MediaMode;
+    use crate::catalog::{Archive, Artist, Catalog, Editorial, Origin, SpecimenImage};
+    use std::collections::HashMap;
+
+    fn test_ctx(specimen: Specimen) -> Ctx {
+        Ctx {
+            catalog: Catalog {
+                archive: Archive::new(vec![specimen]),
+                editorial: Editorial {
+                    artist: Artist {
+                        handle: "artist.example".to_string(),
+                        did: "did:plc:artist".to_string(),
+                        name: "The Artist".to_string(),
+                    },
+                    origin: Origin {
+                        handle: "origin.example".to_string(),
+                        text: String::new(),
+                        url: String::new(),
+                    },
+                    tags: HashMap::new(),
+                    margin_notes: HashMap::new(),
+                },
+            },
+            // CDN mode mirrors production: previews loop the Bluesky HLS re-encode.
+            media_mode: MediaMode::Cdn,
+            media_base: None,
+        }
+    }
+
+    fn video_specimen() -> Specimen {
+        Specimen {
+            rkey: "vid1".to_string(),
+            cid: "bafyvid".to_string(),
+            kind: MediaKind::Video,
+            file: None,
+            pds_key: None,
+            master_key: None,
+            og_poster_key: None,
+            caption: "a loop".to_string(),
+            date: "2026-07-14".to_string(),
+            url: String::new(),
+            images: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn archive_thumb_video_carries_hover_preview_sources() {
+        let ctx = test_ctx(video_specimen());
+        let html = archive_thumb(&ctx, ctx.catalog.archive.all().first().unwrap()).into_string();
+        let playlist = "https://video.bsky.app/watch/did:plc:artist/bafyvid/playlist.m3u8";
+        assert!(
+            html.contains(&format!("data-preview-src=\"{playlist}\"")),
+            "video thumb should carry the loop src: {html}"
+        );
+        assert!(
+            html.contains(&format!("data-preview-hls=\"{playlist}\"")),
+            "video thumb should carry the HLS url in CDN mode: {html}"
+        );
+        // The still poster is the frame shown until the pointer arrives.
+        assert!(
+            html.contains("thumbnail.jpg"),
+            "poster still expected: {html}"
+        );
+    }
+
+    #[test]
+    fn archive_thumb_image_has_no_hover_preview() {
+        let mut s = video_specimen();
+        s.kind = MediaKind::Image;
+        s.cid = "bafyimg".to_string();
+        s.images = vec![SpecimenImage {
+            cid: "bafyimg".to_string(),
+            file: None,
+            alt: String::new(),
+        }];
+        let ctx = test_ctx(s);
+        let html = archive_thumb(&ctx, ctx.catalog.archive.all().first().unwrap()).into_string();
+        assert!(
+            !html.contains("data-preview-src"),
+            "image thumb must not opt into hover playback: {html}"
+        );
+        assert!(
+            !html.contains("data-preview-hls"),
+            "image thumb must not carry an HLS url: {html}"
+        );
+    }
 
     #[test]
     fn og_image_uses_vault_url_when_poster_key_set() {

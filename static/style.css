@@ -246,6 +246,15 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   font-size: 0.85rem;
 }
 
+.archive-thumb {
+  position: relative;
+  display: block;
+  margin-bottom: 0.35rem;
+  transition: transform 0.2s ease;
+}
+
+.archive-item:hover .archive-thumb { transform: translateY(-2px); }
+
 .archive-item img {
   display: block;
   width: 100%;
@@ -254,11 +263,25 @@ a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset:
   background: #0c0a07;
   border: 1px solid var(--ink);
   padding: 4px;
-  margin-bottom: 0.35rem;
-  transition: transform 0.2s ease;
 }
 
-.archive-item:hover img { transform: translateY(-2px); }
+/* Hover preview: a muted loop injected over the poster (see gallery.js). */
+.archive-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  background: #0c0a07;
+  border: 1px solid var(--ink);
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.archive-preview.ready { opacity: 1; }
 
 .archive-label { display: block; line-height: 1.25; }
 
