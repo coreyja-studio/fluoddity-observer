@@ -1050,7 +1050,10 @@ mod tests {
             "video thumb should carry the HLS url in CDN mode: {html}"
         );
         // The still poster is the frame shown until the pointer arrives.
-        assert!(html.contains("thumbnail.jpg"), "poster still expected: {html}");
+        assert!(
+            html.contains("thumbnail.jpg"),
+            "poster still expected: {html}"
+        );
     }
 
     #[test]
