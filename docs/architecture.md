@@ -64,10 +64,12 @@ Bluesky's CDN recompresses aggressively, so the museum keeps its own copies
 - **`pds/{archive filename}`** — full-rate originals pulled from the
   artist's PDS. `cargo run -- pull-media` syncs any specimen the vault is
   missing and records the key on the specimen row.
-- **`masters/{rkey}.{ext}`** — render-node masters uploaded by the artist
-  (or a curator on his behalf) at `/admin/masters`. That page is the
-  *desiderata list*: every video specimen the vault holds no master for,
-  each with an upload slot. One key per specimen; re-upload replaces.
+- **`masters/{rkey}.{ext}`** — source renders uploaded by the artist
+  (or a curator on his behalf) at `/admin/vault`. That page is the
+  *desiderata list*: every video specimen the vault holds no source
+  render for, each with an upload slot. One key per specimen; re-upload
+  replaces. (The storage prefix and `master_key` column keep the old
+  name — renaming stored keys isn't worth the migration.)
   Uploads are curator-gated, capped at 2 GiB, and whitelisted to
   mp4/mov/webm — Bunny types objects by file extension, so only extensions
   browsers can play get in.
@@ -75,7 +77,7 @@ Bluesky's CDN recompresses aggressively, so the museum keeps its own copies
   ffmpeg frame), produced by the `gen-posters` subcommand.
 
 A Bunny pull zone in front serves the vault at `PCG_MEDIA_BASE_URL`.
-**Serving preference per specimen: master → PDS original → Bluesky CDN.**
+**Serving preference per specimen: source render → PDS original → Bluesky CDN.**
 The archive grid keeps the CDN's grid-friendly encodes; the specimen page
 and behold mode swap in the vault's archival copy when one is held, and OG
 cards prefer the own-domain vault poster.
