@@ -18,6 +18,9 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 cja = { git = "https://github.com/coreyja/cja", branch = "main" }
 elliptic-curve = { version = "0.13", features = ["jwk", "pem", "std"] }
+# Same version cja pins — the layer is wired directly here because this app
+# keeps its own stderr logger (see init_tracing in main.rs).
+eyes-subscriber = "0.1.4"
 jose-jwk = "0.1"
 maud = { version = "0.27", features = ["axum"] }
 p256 = { version = "0.13", features = ["pem", "jwk"] }

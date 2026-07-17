@@ -227,23 +227,57 @@ fn media_dir() -> String {
         .unwrap_or_else(|_| "/home/coreyja.linux/paperclips-media/oops".to_string())
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+/// Console logs plus an optional eyes layer (https://eyes.coreyja.com),
+/// activated by `EYES_ORG_ID` + `EYES_APP_ID` (`EYES_URL` overrides the
+/// server) — the same env contract as cja's `setup_tracing`, wired by hand
+/// because our console logs must stay on stderr (cja's go to stdout).
+///
+/// Returns the eyes flush handle; `None` when eyes is not configured.
+fn init_tracing() -> anyhow::Result<Option<eyes_subscriber::EyesShutdownHandle>> {
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+
+    let (eyes_layer, eyes_handle) = match (
+        std::env::var("EYES_ORG_ID").ok(),
+        std::env::var("EYES_APP_ID").ok(),
+    ) {
+        (Some(org_id), Some(app_id)) => {
+            let org_id = uuid::Uuid::parse_str(&org_id)
+                .map_err(|e| anyhow::anyhow!("invalid EYES_ORG_ID: {e}"))?;
+            let app_id = uuid::Uuid::parse_str(&app_id)
+                .map_err(|e| anyhow::anyhow!("invalid EYES_APP_ID: {e}"))?;
+            let (layer, handle) =
+                eyes_subscriber::EyesSubscriberBuilder::build_from_env(org_id, app_id)
+                    .map_err(|e| anyhow::anyhow!("building eyes subscriber: {e}"))?;
+            (Some(layer), Some(handle))
+        }
+        _ => (None, None),
+    };
+
+    tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         // Logs on stderr; stdout stays clean for subcommand output
         // (gen-oauth-key prints the key).
-        .with_writer(std::io::stderr)
+        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(eyes_layer)
         .init();
+
+    Ok(eyes_handle)
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // The eyes worker spawns onto this runtime — init inside the async context.
+    let eyes_handle = init_tracing()?;
 
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set (see .mise.toml)"))?;
     let pool = PgPool::connect(&database_url).await?;
     sqlx::migrate!().run(&pool).await?;
 
-    match std::env::args().nth(1).as_deref() {
+    let result = match std::env::args().nth(1).as_deref() {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
@@ -261,7 +295,17 @@ async fn main() -> anyhow::Result<()> {
         Some(other) => anyhow::bail!(
             "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `harvest-once`, `classify-dimensions`, `gen-posters`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
+    };
+
+    // Flush buffered telemetry — one-shot subcommands would otherwise drop
+    // whatever the eyes worker hadn't sent yet.
+    if let Some(handle) = eyes_handle
+        && let Err(err) = handle.shutdown().await
+    {
+        eprintln!("eyes telemetry flush failed: {err}");
     }
+
+    result
 }
 
 /// One manual poll of the artist's feed — useful for cron or debugging.

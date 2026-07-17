@@ -2446,6 +2446,7 @@ dependencies = [
  "chrono",
  "cja",
  "elliptic-curve",
+ "eyes-subscriber",
  "futures-util",
  "jose-jwk",
  "maud",
