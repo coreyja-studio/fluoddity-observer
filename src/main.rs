@@ -672,12 +672,12 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
             "/admin/specimens/restore",
             axum::routing::post(admin::restore_specimen),
         )
-        .route("/admin/masters", get(admin::masters_page))
+        .route("/admin/vault", get(admin::masters_page))
         .route(
-            "/admin/masters/upload",
+            "/admin/vault/upload",
             axum::routing::post(admin::upload_master)
-                // Masters are render-node originals, far past the default
-                // 2 MB body cap.
+                // Source renders come straight off the render node, far past
+                // the default 2 MB body cap.
                 .layer(axum::extract::DefaultBodyLimit::max(
                     admin::MAX_MASTER_BYTES as usize,
                 )),

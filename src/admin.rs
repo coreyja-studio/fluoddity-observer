@@ -264,8 +264,8 @@ pub async fn dashboard(
             section {
                 h2 .room-label { "The Vault" }
                 p .room-sublabel {
-                    "full-rate originals and the artist's render-node masters — "
-                    a href="/admin/masters" { "see what's still wanted →" }
+                    "full-rate originals and the artist's source renders — "
+                    a href="/admin/vault" { "see what's still wanted →" }
                 }
             }
 
@@ -388,15 +388,16 @@ pub async fn masters_page(
             }
 
             section {
-                h2 .room-label { "The Vault · Wanted: Masters" }
+                h2 .room-label { "The Vault · Wanted: Source Renders" }
                 p .room-sublabel {
                     "the museum keeps the best copy of every specimen it can get. "
                     "Bluesky's CDN re-encodes what the timeline sees; the vault below "
-                    "holds the originals. A render-node master is better still — "
-                    "upload one here and every wall in the guide upgrades on the spot."
+                    "holds the originals. A source render straight from the render "
+                    "node is better still — upload one here and every wall in the "
+                    "guide upgrades on the spot."
                 }
                 p .room-sublabel {
-                    strong { (held) } " master"
+                    strong { (held) } " source render"
                     @if held != 1 { "s" }
                     " held · " strong { (wanted.len()) } " still wanted"
                 }
@@ -415,7 +416,7 @@ pub async fn masters_page(
                             @else { " · Bluesky re-encode only" }
                         }
                         @if uploads_ready {
-                            form method="post" action="/admin/masters/upload"
+                            form method="post" action="/admin/vault/upload"
                                 enctype="multipart/form-data" .inline-form {
                                 input type="hidden" name="rkey" value=(s.rkey);
                                 input type="file" name="master" accept="video/mp4,video/quicktime,video/webm" required;
@@ -425,7 +426,7 @@ pub async fn masters_page(
                     }
                 }
                 @if wanted.is_empty() {
-                    p .room-sublabel { "the vault holds a master for every specimen — the desiderata list is empty 🎉" }
+                    p .room-sublabel { "the vault holds a source render for every specimen — the desiderata list is empty 🎉" }
                 }
             }
         },
@@ -497,7 +498,7 @@ pub async fn upload_master(
                 };
                 tokio::fs::remove_file(&tmp).await.ok();
                 result?;
-                return Ok(Redirect::to("/admin/masters").into_response());
+                return Ok(Redirect::to("/admin/vault").into_response());
             }
             _ => {}
         }
@@ -517,7 +518,7 @@ async fn spool_to_file(
         written += chunk.len() as u64;
         anyhow::ensure!(
             written <= MAX_MASTER_BYTES,
-            "master exceeds {MAX_MASTER_BYTES} bytes"
+            "upload exceeds {MAX_MASTER_BYTES} bytes"
         );
         out.write_all(&chunk).await?;
     }

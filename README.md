@@ -126,9 +126,9 @@ Rust (Axum + Maud + SQLx/Postgres), server-rendered, no client framework.
 Media serves from the Bluesky CDNs in hosted mode (HLS video via hls.js,
 stills from the image CDN), with an optional **vault** — a Bunny Storage
 zone of preservation copies: full-rate originals pulled from the artist's
-PDS (`pull-media`), render-node masters uploaded at `/admin/masters`, and
+PDS (`pull-media`), source renders uploaded at `/admin/vault`, and
 generated OG posters. When the vault holds a copy, specimen pages serve it
-in preference order master → PDS original → Bluesky CDN; details in
+in preference order source render → PDS original → Bluesky CDN; details in
 [docs/architecture.md](docs/architecture.md). Background work
 (ingest polling, suggestion harvest, margin-note refresh, bot mentions,
 weekly wrap-up) runs on the cja cron + durable-job system with retries and

@@ -53,7 +53,7 @@ Single Axum binary, Maud server-rendered, no client framework. Postgres is
 the source of truth (`catalog.json` + `metadata.jsonl` are the seed-era
 import, not live config). Media streams from Bluesky CDNs in hosted mode
 (`PCG_MEDIA_MODE=cdn`), with an optional Bunny Storage **vault** of
-preservation copies served in preference order master → PDS original →
+preservation copies served in preference order source render → PDS original →
 Bluesky CDN (see `docs/architecture.md`). Background work runs on cja
 cron + durable jobs (`cron.rs` / `jobs.rs`): feed ingest, margin-note
 refresh, suggestion harvest, bot mentions, weekly wrap-up. Admin OAuth is
