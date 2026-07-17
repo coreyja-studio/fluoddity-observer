@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "cja"
 version = "0.0.0"
-source = "git+https://github.com/coreyja/cja?branch=main#86514f43d495a9dbe361f058473acf2b1167153a"
+source = "git+https://github.com/coreyja/cja?branch=main#cec5e6682ebc219f667cc85c5adc93070bb07d23"
 dependencies = [
  "async-trait",
  "axum",
@@ -950,9 +950,9 @@ dependencies = [
 
 [[package]]
 name = "eyes-subscriber"
-version = "0.1.4"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96a0825ed92012c483a024529d9bf8724d862d6ecf071949fdfde0a7d0195a62"
+checksum = "4c02b6b5dff985809ab4d6bb0836b882324c60028d4523ddaac06e1ed01a9732"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1501,7 +1501,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2694,7 +2694,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.41",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2731,7 +2731,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.52.0",
 ]
