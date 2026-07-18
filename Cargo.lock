@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "cja"
 version = "0.0.0"
-source = "git+https://github.com/coreyja/cja?branch=main#cec5e6682ebc219f667cc85c5adc93070bb07d23"
+source = "git+https://github.com/coreyja/cja?branch=main#ad028ff68b6d86b46f7211017ca95485fab06514"
 dependencies = [
  "async-trait",
  "axum",
@@ -503,7 +503,7 @@ dependencies = [
  "chrono-tz",
  "color-eyre",
  "cron",
- "eyes-subscriber",
+ "eyes-subscriber 0.3.0",
  "futures",
  "http 1.4.2",
  "listenfd",
@@ -953,6 +953,27 @@ name = "eyes-subscriber"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c02b6b5dff985809ab4d6bb0836b882324c60028d4523ddaac06e1ed01a9732"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "futures-util",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-tungstenite",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "eyes-subscriber"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76e57398dba5c4c41c08b2d778c97e363bfddec1915e9662b28ec1ed70b1867c"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1501,7 +1522,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tokio",
  "tower-service",
  "tracing",
@@ -2446,7 +2467,7 @@ dependencies = [
  "chrono",
  "cja",
  "elliptic-curve",
- "eyes-subscriber",
+ "eyes-subscriber 0.2.0",
  "futures-util",
  "jose-jwk",
  "maud",
@@ -2694,7 +2715,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.41",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2731,7 +2752,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.4",
  "tracing",
  "windows-sys 0.52.0",
 ]
