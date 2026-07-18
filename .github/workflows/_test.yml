@@ -35,7 +35,7 @@ jobs:
           toolchain: stable
 
       - name: Install SQLx CLI
-        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+        run: cargo install sqlx-cli --version 0.8.6 --no-default-features --features rustls,postgres
 
       - name: Run Migrations
         run: sqlx migrate run
