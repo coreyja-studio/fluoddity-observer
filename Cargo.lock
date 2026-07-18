@@ -503,7 +503,7 @@ dependencies = [
  "chrono-tz",
  "color-eyre",
  "cron",
- "eyes-subscriber 0.3.0",
+ "eyes-subscriber",
  "futures",
  "http 1.4.2",
  "listenfd",
@@ -946,27 +946,6 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
-]
-
-[[package]]
-name = "eyes-subscriber"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c02b6b5dff985809ab4d6bb0836b882324c60028d4523ddaac06e1ed01a9732"
-dependencies = [
- "async-trait",
- "chrono",
- "futures-util",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-tungstenite",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
 ]
 
 [[package]]
@@ -1522,7 +1501,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2467,7 +2446,7 @@ dependencies = [
  "chrono",
  "cja",
  "elliptic-curve",
- "eyes-subscriber 0.2.0",
+ "eyes-subscriber",
  "futures-util",
  "jose-jwk",
  "maud",
@@ -2715,7 +2694,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.41",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2752,7 +2731,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.4",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.52.0",
 ]
