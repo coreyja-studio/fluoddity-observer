@@ -7,7 +7,7 @@ use cja::cron::{CronRegistry, Worker};
 
 use crate::{AppState, bot, jobs};
 
-fn registry() -> CronRegistry<AppState> {
+pub fn registry() -> CronRegistry<AppState> {
     let mut registry = CronRegistry::new();
 
     let poll_secs: u64 = std::env::var("PCG_POLL_SECS")
@@ -56,8 +56,8 @@ fn registry() -> CronRegistry<AppState> {
     registry
 }
 
-pub async fn run_cron(state: AppState) -> cja::Result<()> {
-    Worker::new(state, registry())
+pub async fn run_cron(state: AppState, registry: CronRegistry<AppState>) -> cja::Result<()> {
+    Worker::new(state, registry)
         .run(cja::jobs::CancellationToken::new())
         .await?;
     Ok(())

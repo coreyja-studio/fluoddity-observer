@@ -654,7 +654,18 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     // cja background workers: the job worker drains the durable queue, the
     // cron worker enqueues on schedule (ingest, bot mentions, weekly
-    // wrap-up — see cron.rs).
+    // wrap-up — see cron.rs). Build the cron registry once so we can also
+    // describe it to the Eyes boot manifest below.
+    let cron_registry = cron::registry();
+
+    // Report our job + cron surface area to the Eyes observatory. No-op
+    // unless EYES_ORG_ID / EYES_APP_ID are set in the environment.
+    cja::eyes_manifest::send_boot_manifest::<jobs::Jobs, AppState>(
+        Some(env!("CARGO_PKG_VERSION")),
+        None,
+        Some(&cron_registry),
+    );
+
     tokio::spawn(cja::jobs::worker::job_worker(
         state.clone(),
         jobs::Jobs,
@@ -663,7 +674,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         cja::jobs::CancellationToken::new(),
         cja::jobs::DEFAULT_LOCK_TIMEOUT,
     ));
-    tokio::spawn(cron::run_cron(state.clone()));
+    tokio::spawn(cron::run_cron(state.clone(), cron_registry));
 
     let app = Router::new()
         .route("/", get(index))
