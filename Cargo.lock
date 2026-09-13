@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "cja"
 version = "0.0.0"
-source = "git+https://github.com/coreyja/cja?branch=main#ad028ff68b6d86b46f7211017ca95485fab06514"
+source = "git+https://github.com/coreyja/cja?branch=main#b1783905f5cf9acb4612a1a9abfaa2e45109c291"
 dependencies = [
  "async-trait",
  "axum",
@@ -949,13 +949,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "eyes-subscriber"
-version = "0.3.1"
+name = "eyes-query"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cf4341a2daed57db9b400d8dd0abc3444153120a2ad07851a28d2e8bfabf789"
+checksum = "ad47db44035e24bcc69c7f400cc904b0d370e44d5377ff06f1c7fa86d8bd1e98"
+dependencies = [
+ "chrono",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
+name = "eyes-subscriber"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00ae9086f025745541346c85cc2d3da0b110150de5abadec90fe4f9b66c118d5"
 dependencies = [
  "async-trait",
  "chrono",
+ "eyes-query",
  "futures-util",
  "reqwest 0.12.28",
  "serde",
