@@ -11,7 +11,8 @@ COPY --from=planner /app/recipe.json recipe.json
 ENV SQLX_OFFLINE=1
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN cargo build --release --locked --bin paperclips-gallery
+ARG PCG_GIT_SHA
+RUN PCG_GIT_SHA="$PCG_GIT_SHA" cargo build --release --locked --bin paperclips-gallery
 
 FROM debian:stable-slim AS final
 WORKDIR /app

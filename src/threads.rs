@@ -227,6 +227,7 @@ type CacheEntry = (Instant, Arc<ThreadRoom>);
 /// Live thread fetcher with a small TTL cache.
 pub struct ThreadFetcher {
     client: reqwest::Client,
+    api_base: String,
     cache: tokio::sync::Mutex<HashMap<CacheKey, CacheEntry>>,
 }
 
@@ -234,11 +235,13 @@ impl ThreadFetcher {
     pub fn new(client: reqwest::Client) -> Self {
         Self {
             client,
+            api_base: PUBLIC_API.to_owned(),
             cache: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
     /// Fetch (or reuse) a thread room. `author` may be a handle or a DID.
+    #[tracing::instrument(name = "gallery.thread.fetch", skip_all, fields(thread.author = author, thread.rkey = rkey), err)]
     pub async fn fetch(
         &self,
         author: &str,
@@ -247,30 +250,21 @@ impl ThreadFetcher {
         artist_handle: &str,
     ) -> anyhow::Result<Option<Arc<ThreadRoom>>> {
         let key = (author.to_string(), rkey.to_string());
-        {
-            let cache = self.cache.lock().await;
-            if let Some((at, room)) = cache.get(&key)
-                && at.elapsed() < CACHE_TTL
-            {
-                return Ok(Some(room.clone()));
-            }
+        if let Some(room) = self.cached(&key).await {
+            return Ok(Some(room));
         }
 
         let did = if author.starts_with("did:") {
             author.to_string()
         } else {
-            let resolved: serde_json::Value = self
-                .client
-                .get(format!(
-                    "{PUBLIC_API}/xrpc/com.atproto.identity.resolveHandle"
-                ))
-                .query(&[("handle", author)])
-                .send()
+            let resolved = self
+                .request_json(
+                    "com.atproto.identity.resolveHandle",
+                    &[("handle", author)],
+                    false,
+                )
                 .await?
-                .error_for_status()
-                .context("resolving thread author handle")?
-                .json()
-                .await?;
+                .context("handle resolution returned no response")?;
             match resolved.get("did").and_then(|d| d.as_str()) {
                 Some(did) => did.to_string(),
                 None => return Ok(None),
@@ -317,6 +311,12 @@ impl ThreadFetcher {
             anchor = deeper;
         }
         let room = Arc::new(room);
+        tracing::info!(
+            event_type = "gallery.thread_loaded",
+            continuation_hops = hops,
+            entries = room.entries.len(),
+            "Room thread loaded"
+        );
         self.cache
             .lock()
             .await
@@ -326,25 +326,69 @@ impl ThreadFetcher {
 }
 
 impl ThreadFetcher {
+    #[tracing::instrument(name = "gallery.thread.cache", skip_all)]
+    async fn cached(&self, key: &CacheKey) -> Option<Arc<ThreadRoom>> {
+        let cache = self.cache.lock().await;
+        let (outcome, room) = match cache.get(key) {
+            Some((at, room)) if at.elapsed() < CACHE_TTL => ("hit", Some(room.clone())),
+            Some(_) => ("expired", None),
+            None => ("miss", None),
+        };
+        tracing::info!(
+            event_type = "gallery.thread_cache",
+            cache.outcome = outcome,
+            "Room cache lookup"
+        );
+        room
+    }
+
     async fn fetch_thread_json(&self, uri: &str) -> anyhow::Result<Option<serde_json::Value>> {
+        self.request_json(
+            "app.bsky.feed.getPostThread",
+            &[("uri", uri), ("depth", "1000")],
+            true,
+        )
+        .await
+    }
+
+    #[tracing::instrument(name = "gallery.bluesky.request", skip_all, fields(rpc.method = method), err)]
+    async fn request_json(
+        &self,
+        method: &str,
+        query: &[(&str, &str)],
+        allow_missing: bool,
+    ) -> anyhow::Result<Option<serde_json::Value>> {
         let response = self
             .client
-            .get(format!("{PUBLIC_API}/xrpc/app.bsky.feed.getPostThread"))
-            .query(&[("uri", uri), ("depth", "1000")])
+            .get(format!("{}/xrpc/{method}", self.api_base))
+            .query(query)
             .send()
             .await?;
-        if response.status() == reqwest::StatusCode::BAD_REQUEST
-            || response.status() == reqwest::StatusCode::NOT_FOUND
+        tracing::info!(
+            event_type = "gallery.bluesky_response",
+            http.response.status_code = response.status().as_u16(),
+            "Bluesky response received"
+        );
+        if allow_missing
+            && (response.status() == reqwest::StatusCode::BAD_REQUEST
+                || response.status() == reqwest::StatusCode::NOT_FOUND)
         {
             return Ok(None);
         }
         Ok(Some(
             response
                 .error_for_status()
-                .context("fetching thread")?
+                .context("Bluesky request failed")?
                 .json()
                 .await?,
         ))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_client(api_base: String) -> Self {
+        let mut fetcher = Self::new(reqwest::Client::new());
+        fetcher.api_base = api_base;
+        fetcher
     }
 }
 
