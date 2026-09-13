@@ -42,12 +42,32 @@ Routes live in `main.rs`; rendering in `views.rs` (Maud). Public pages:
   lineage, page-turn to previous/next sighting
 - `/room/{author}/{rkey}` — ANY Bluesky thread rendered as a room
   (permissionless by design; the homepage registry is the curated part),
-  five-minute cache
+five-minute cache
 - `/search`, `/tag/{tag}`, `/ambient`, `/feed.xml`, `/colophon`
 
 `/admin` is the curator's desk: Bluesky OAuth for identity only (`auth.rs` —
 prove the DID, check the roster, mint our own cookie, discard the atproto
 tokens). Curators register rooms, tag specimens, and work the suggestion box.
+
+Public and admin routes emit cja-compatible `server.request` spans with route
+and method labels at span creation. Query strings and request headers are
+excluded, including OAuth callback credentials. cja's response event supplies
+the HTTP status used by Eyes' semantic request provider. Catalog loading, room
+loading, cache lookup and each Bluesky RPC have child spans, so an investigation
+can attribute latency within the actual request.
+
+`gallery.thread_cache` events distinguish hit, miss and expired entries.
+`gallery.bluesky_response` records the returned status; failed calls also emit
+errors. Fetch spans include completion time and completed loads report their
+continuation-hop and entry counts. The five-minute cache and thread traversal
+behavior are unchanged; telemetry does not imply a cache/network root cause
+until the request evidence supports it.
+
+The boot manifest declares eight metrics and `gallery-operations`: request
+volume/routes/p95, room-fetch p95, cache outcomes, and Bluesky call counts/p95.
+Deployments embed their git SHA. Subscriber 0.8.1 uses batching on Fly so low
+volume traces flush without waiting for another request. These additions use
+passive telemetry; they add no external probes or process-liveness requirement.
 
 ## Media
 

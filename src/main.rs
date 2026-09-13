@@ -15,6 +15,7 @@ mod feed;
 mod ingest;
 mod jobs;
 mod margin_notes;
+mod observability;
 mod storage;
 mod suggestions;
 mod threads;
@@ -165,6 +166,7 @@ impl HungRoom {
 impl AppState {
     /// All registered thread rooms with live (cached) thread data. Rooms
     /// whose threads can't be fetched right now are skipped with a warning.
+    #[tracing::instrument(name = "gallery.rooms.load", skip_all)]
     async fn registered_rooms(&self, ctx: &Ctx) -> Vec<HungRoom> {
         let artist = &ctx.catalog.editorial.artist;
         let rows = match db::thread_rooms(&self.pool).await {
@@ -193,6 +195,7 @@ impl AppState {
         hung
     }
 
+    #[tracing::instrument(name = "gallery.catalog.load", skip_all)]
     async fn ctx(&self) -> anyhow::Result<Ctx> {
         Ok(Ctx {
             catalog: db::load_catalog(&self.pool).await?,
@@ -662,9 +665,13 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     // unless EYES_ORG_ID / EYES_APP_ID are set in the environment.
     let mut manifest = cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
         Some(env!("CARGO_PKG_VERSION")),
-        None,
+        observability::git_sha(),
         Some(&cron_registry),
-    );
+    )
+    .metrics(observability::metrics().map_err(anyhow::Error::msg)?)
+    .dashboards(vec![
+        observability::dashboard().map_err(anyhow::Error::msg)?,
+    ]);
     if let Ok(base_url) = std::env::var("PCG_PUBLIC_URL") {
         manifest = manifest
             .base_url(base_url)
@@ -748,6 +755,11 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         .route("/static/gallery.js", get(gallery_js))
         .route("/static/ambient.js", get(ambient_js))
         .nest_service("/media", ServeDir::new(media_dir()))
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(observability::RequestSpan)
+                .on_response(cja::server::trace::Tracer),
+        )
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
@@ -761,6 +773,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(name = "gallery.homepage", skip_all)]
 async fn index(State(state): State<SharedState>) -> Result<maud::Markup, AppError> {
     let ctx = state.ctx().await?;
     let rooms = state.registered_rooms(&ctx).await;

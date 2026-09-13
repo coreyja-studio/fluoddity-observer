@@ -7,6 +7,7 @@ primary_region = 'ewr'
 [build]
 
 [env]
+EYES_TRANSPORT = 'batching'
 # Hosted mode streams everything from the Bluesky video CDN — no media
 # volume needed. Secrets (set via `flyctl secrets set`):
 #   DATABASE_URL           — hosted Postgres (Neon)
