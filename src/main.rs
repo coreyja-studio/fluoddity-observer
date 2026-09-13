@@ -660,11 +660,17 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     // Report our job + cron surface area to the Eyes observatory. No-op
     // unless EYES_ORG_ID / EYES_APP_ID are set in the environment.
-    cja::eyes_manifest::send_boot_manifest::<jobs::Jobs, AppState>(
+    let mut manifest = cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
         Some(env!("CARGO_PKG_VERSION")),
         None,
         Some(&cron_registry),
     );
+    if let Ok(base_url) = std::env::var("PCG_PUBLIC_URL") {
+        manifest = manifest
+            .base_url(base_url)
+            .monitors(vec![cja::eyes_manifest::HttpMonitor::new("homepage", "/")]);
+    }
+    cja::eyes_manifest::send_manifest(manifest);
 
     tokio::spawn(cja::jobs::worker::job_worker(
         state.clone(),

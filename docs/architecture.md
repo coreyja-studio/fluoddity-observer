@@ -93,6 +93,12 @@ blessing, and deleted on his word like everything else.
 
 ## Background work
 
+The Eyes boot manifest includes the job and cron registry. When `PCG_PUBLIC_URL`
+is configured, it also declares an external HTTP check of the homepage. That
+check covers the public page response; background processing still needs process
+role declarations before run-health alerts are armed. Both the direct tracing
+layer and cja use the same eyes-subscriber 0.8 release.
+
 `cron.rs` registers tickers on the cja cron worker; each tick enqueues a
 durable job (`jobs.rs`) with retries and a dead-letter queue, so a slow poll
 can never wedge the schedule:
