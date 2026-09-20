@@ -29,6 +29,8 @@ use axum::{
     routing::get,
 };
 use catalog::Catalog;
+use cja::color_eyre::eyre::WrapErr as _;
+use cja::tasks::{ShutdownBudget, Supervisor};
 use sqlx::PgPool;
 use std::sync::Arc as StdArc;
 use tower_http::services::ServeDir;
@@ -679,15 +681,29 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     }
     cja::eyes_manifest::send_manifest(manifest);
 
-    tokio::spawn(cja::jobs::worker::job_worker(
-        state.clone(),
-        jobs::Jobs,
-        std::time::Duration::from_secs(5),
-        cja::jobs::DEFAULT_MAX_RETRIES,
-        cja::jobs::CancellationToken::new(),
-        cja::jobs::DEFAULT_LOCK_TIMEOUT,
-    ));
-    tokio::spawn(cron::run_cron(state.clone(), cron_registry));
+    // The supervisor registers SIGTERM + SIGINT (Fly sends SIGINT by
+    // default), owns the shutdown token, and bounds the drain. The default
+    // budget (2s job drain + 2s exit grace) fits Fly's default 5s
+    // `kill_timeout`; fly.toml does not raise it.
+    let mut supervisor = Supervisor::new(ShutdownBudget::from_env()).map_err(to_anyhow)?;
+    let shutdown = supervisor.shutdown_token();
+
+    supervisor.spawn(
+        "jobs",
+        cja::jobs::worker::job_worker_with_shutdown_drain(
+            state.clone(),
+            jobs::Jobs,
+            std::time::Duration::from_secs(5),
+            cja::jobs::DEFAULT_MAX_RETRIES,
+            shutdown.clone(),
+            cja::jobs::DEFAULT_LOCK_TIMEOUT,
+            supervisor.budget().job_drain,
+        ),
+    );
+    supervisor.spawn(
+        "cron",
+        cron::run_cron(state.clone(), cron_registry, shutdown.clone()),
+    );
 
     let app = Router::new()
         .route("/", get(index))
@@ -765,12 +781,22 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let addr = format!("0.0.0.0:{port}");
     tracing::info!("listening on http://{addr}");
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-        })
-        .await?;
-    Ok(())
+    // Served directly rather than through `cja::server::serve_until`: that
+    // would stack cja's trace + cookie layers on top of the ones above.
+    supervisor.spawn("server", async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown.cancelled_owned())
+            .await
+            .wrap_err("HTTP server failed")
+    });
+
+    supervisor.run().await.map_err(to_anyhow)
+}
+
+/// cja reports errors as `color_eyre::Report`, which is not a
+/// `std::error::Error` and so cannot cross into `anyhow` with `?`.
+fn to_anyhow(err: cja::color_eyre::Report) -> anyhow::Error {
+    anyhow::anyhow!("{err:#}")
 }
 
 #[tracing::instrument(name = "gallery.homepage", skip_all)]

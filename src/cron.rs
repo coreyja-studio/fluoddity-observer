@@ -56,9 +56,13 @@ pub fn registry() -> CronRegistry<AppState> {
     registry
 }
 
-pub async fn run_cron(state: AppState, registry: CronRegistry<AppState>) -> cja::Result<()> {
-    Worker::new(state, registry)
-        .run(cja::jobs::CancellationToken::new())
-        .await?;
+/// Runs until `shutdown` is cancelled; a tick already in flight finishes
+/// enqueueing first.
+pub async fn run_cron(
+    state: AppState,
+    registry: CronRegistry<AppState>,
+    shutdown: cja::jobs::CancellationToken,
+) -> cja::Result<()> {
+    Worker::new(state, registry).run(shutdown).await?;
     Ok(())
 }
