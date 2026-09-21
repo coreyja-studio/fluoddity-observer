@@ -6,9 +6,14 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Queue production deploys rather than cancelling them. `cancel-in-progress:
+    # true` kills a run whose `flyctl deploy` is already in flight, abandoning a
+    # release halfway for no gain. Queueing still ends on the newest SHA:
+    # GitHub drops the older *pending* entry when a newer run queues behind a
+    # running one.
     concurrency:
       group: deploy-fluoddity-observer
-      cancel-in-progress: true
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
