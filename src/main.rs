@@ -690,14 +690,16 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     supervisor.spawn(
         "jobs",
-        cja::jobs::worker::job_worker_with_shutdown_drain(
+        cja::jobs::worker::job_worker(
             state.clone(),
             jobs::Jobs,
             std::time::Duration::from_secs(5),
             cja::jobs::DEFAULT_MAX_RETRIES,
             shutdown.clone(),
-            cja::jobs::DEFAULT_LOCK_TIMEOUT,
-            supervisor.budget().job_drain,
+            cja::jobs::JobWorkerConfig {
+                shutdown_drain_timeout: supervisor.budget().job_drain,
+                ..cja::jobs::JobWorkerConfig::default()
+            },
         ),
     );
     supervisor.spawn(
