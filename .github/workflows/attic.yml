@@ -1,0 +1,20 @@
+name: attic
+
+# Build the Fluoddity image and push it to attic (coreyja-studio/.github's
+# reusable attic-deploy workflow). Deploying is then pinning the printed digest in
+# coreyja-studio/infra hosts/attic/apps/fluoddity/compose.yml.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  image:
+    uses: coreyja-studio/.github/.github/workflows/attic-deploy.yml@main
+    with:
+      app: fluoddity
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
