@@ -50,9 +50,3 @@ jobs:
           if [[ "${{ needs.test.result }}" != "success" ]]; then exit 1; fi
           if [[ "${{ needs.cargo-deny.result }}" != "success" ]]; then exit 1; fi
           if [[ "${{ needs.pr-title.result }}" != "success" && "${{ needs.pr-title.result }}" != "skipped" ]]; then exit 1; fi
-
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [fmt, clippy, test, cargo-deny]
-    uses: ./.github/workflows/_deploy.yml
-    secrets: inherit
