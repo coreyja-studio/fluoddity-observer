@@ -19,6 +19,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
   ca-certificates \
+  wget \
   && rm -rf /var/lib/apt/lists/* \
   && update-ca-certificates
 
