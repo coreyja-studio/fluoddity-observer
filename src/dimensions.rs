@@ -58,7 +58,10 @@ pub async fn classify_archive(pool: &PgPool) -> anyhow::Result<usize> {
 
     let mut added = 0;
     for s in &specimens {
-        let dimension = classify(&s.caption, &s.collected_on.format("%Y-%m-%d").to_string());
+        let dimension = classify(
+            &s.caption,
+            &s.collected_on.to_jiff().strftime("%Y-%m-%d").to_string(),
+        );
         let inserted = sqlx::query!(
             "INSERT INTO specimen_tags (rkey, tag, kind, source, added_by)
              VALUES ($1, $2, 'tag', 'curator', 'survey-heuristic')

@@ -3,6 +3,7 @@
 //! snapshot the pages render from; `import` is the idempotent seed from the
 //! flat-file era (`metadata.jsonl` + `catalog.json`) and safe to re-run.
 
+use cja::jiff_sqlx::ToSqlx as _;
 use std::collections::HashMap;
 
 use anyhow::Context;
@@ -59,7 +60,7 @@ pub async fn load_catalog(pool: &PgPool) -> anyhow::Result<Catalog> {
         master_key: row.master_key,
         og_poster_key: row.og_poster_key,
         caption: row.caption,
-        date: row.collected_on.format("%Y-%m-%d").to_string(),
+        date: row.collected_on.to_jiff().strftime("%Y-%m-%d").to_string(),
         url: row.url,
     })
     .collect();
@@ -116,7 +117,7 @@ pub struct RemovedSpecimen {
     pub caption: String,
     /// ISO date (YYYY-MM-DD).
     pub date: String,
-    pub removed_at: chrono::DateTime<chrono::Utc>,
+    pub removed_at: cja::jiff::Timestamp,
     pub removed_by: Option<String>,
 }
 
@@ -145,11 +146,11 @@ pub async fn load_removed_specimens(pool: &PgPool) -> anyhow::Result<Vec<Removed
     .map(|row| RemovedSpecimen {
         rkey: row.rkey,
         caption: row.caption,
-        date: row.collected_on.format("%Y-%m-%d").to_string(),
+        date: row.collected_on.to_jiff().strftime("%Y-%m-%d").to_string(),
         // removed_at is NOT NULL because of the WHERE clause, but sqlx::query!
         // infers Option from the column's nullability, not the WHERE clause.
         // The .expect() is safe because the WHERE clause is in the same query.
-        removed_at: row.removed_at.expect("filtered to NOT NULL"),
+        removed_at: row.removed_at.expect("filtered to NOT NULL").to_jiff(),
         removed_by: row.removed_by,
     })
     .collect())
@@ -234,9 +235,9 @@ pub async fn import(
     let mut specimen_count = 0;
     for group in &posts {
         let first = group[0];
-        let collected_on = chrono::NaiveDate::parse_from_str(
-            &first.created_at[..10.min(first.created_at.len())],
+        let collected_on = cja::jiff::civil::Date::strptime(
             "%Y-%m-%d",
+            &first.created_at[..10.min(first.created_at.len())],
         )
         .with_context(|| format!("bad createdAt for {}", first.rkey))?;
         sqlx::query!(
@@ -251,7 +252,7 @@ pub async fn import(
             first.kind,
             first.file,
             first.caption,
-            collected_on,
+            collected_on.to_sqlx(),
             first.url,
         )
         .execute(&mut *tx)
