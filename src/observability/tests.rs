@@ -1,6 +1,7 @@
 use super::*;
 use crate::threads::ThreadFetcher;
 use axum::{Json, Router, body::Body, extract::State, http::StatusCode, routing::get};
+use cja::observability::Declarations;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -268,7 +269,7 @@ fn operations_dashboard_references_declared_metrics() {
                 Item::HealthSummary { .. } | Item::Links { .. } => None,
             };
             if let Some(id) = metric_id {
-                assert!(names.contains(&id), "{id}");
+                assert!(names.contains(&id.as_str()), "{id}");
                 references += 1;
             }
         }

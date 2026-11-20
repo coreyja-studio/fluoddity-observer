@@ -179,8 +179,9 @@ loopback client (reach the site via `127.0.0.1`).
 
 GitHub Actions: fmt, clippy (`-D warnings`), SQLx prepare-check + tests
 against a Postgres service, cargo-deny, conventional-commit PR titles, and
-a `ready` aggregator. Pushes to `main` deploy to Fly. When queries change:
-`cargo sqlx prepare -- --all-targets` and commit `.sqlx`.
+a Docker build and a `ready` aggregator. The attic workflow builds the image;
+Corey deploys via a separate infra image digest pin. When queries change, run
+SQLx CLI 0.9 `cargo sqlx prepare -- --all-targets` and commit `.sqlx`.
 
 ## License
 

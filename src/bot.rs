@@ -888,6 +888,15 @@ mod weekly_tests {
     }
 
     #[test]
+    fn atproto_time_is_utc_with_three_fractional_digits() {
+        let value = atproto_timestamp();
+        assert!(value.ends_with('Z'));
+        let fractional = value.trim_end_matches('Z').rsplit('.').next().unwrap();
+        assert_eq!(fractional.len(), 3);
+        assert!(fractional.bytes().all(|byte| byte.is_ascii_digit()));
+    }
+
+    #[test]
     fn weeks_are_monday_through_sunday_and_completed() {
         // Wednesday 2026-07-01 → previous week Mon 22 Jun ..= Sun 28 Jun.
         let today = cja::jiff::civil::Date::new(2026, 7, 1).unwrap();

@@ -31,8 +31,11 @@ Other subcommands: `ingest-once`, `harvest-once`, `pull-media`,
 - **Migration numbering**: check the highest version applied on PROD
   (`_sqlx_migrations`), not just the files here — two same-day PRs have
   collided before. Duplicate versions break the live DB after merge, not CI.
-- **Pushes to `main` deploy straight to production Fly** (`paperclips-gallery`
-  app). There is no staging. PR titles must be conventional commits.
+- **Production runs on attic** as the `fluoddity` Compose service. The
+  `.github/workflows/attic.yml` build and separate infra image digest pin
+  control deployment. PR titles must be conventional commits.
+- **Vendored cja migrations** use `2026…` filenames while app migrations
+  continue the `00NN_` sequence. SQLx applies later app versions out of order.
 - Env vars load through **mise** (`.mise.toml`); there is no `.env`.
 
 ## Invariants — do not break these

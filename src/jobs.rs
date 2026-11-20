@@ -136,3 +136,73 @@ cja::impl_job_registry!(
     RefreshMarginNotes,
     HarvestSuggestions
 );
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use cja::jobs::{CancellationToken, Job as _};
+    use sqlx::PgPool;
+
+    use super::*;
+
+    #[sqlx::test]
+    async fn migrated_worker_claims_a_queued_job(pool: PgPool) {
+        let mode = crate::auth::OauthMode::Loopback {
+            callback_url: "http://127.0.0.1:4601/admin/oauth/callback".into(),
+        };
+        let oauth = crate::auth::build_oauth_client(pool.clone(), &mode).unwrap();
+        let http = reqwest::Client::new();
+        let state = AppState {
+            pool: pool.clone(),
+            media_mode: crate::MediaMode::Cdn,
+            media_base: None,
+            public_url: None,
+            bunny: None,
+            http: http.clone(),
+            oauth: Arc::new(oauth),
+            oauth_mode: Arc::new(mode),
+            threads: Arc::new(crate::threads::ThreadFetcher::new(http)),
+            cookie_key: cja::server::cookies::CookieKey::generate(),
+        };
+        // With no bot credentials, ProcessMentions completes without a network call.
+        assert!(crate::bot::BotConfig::from_env().is_none());
+        ProcessMentions
+            .enqueue(state.clone(), "scratch worker claim".into(), None)
+            .await
+            .unwrap();
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM jobs WHERE name = 'ProcessMentions'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+
+        let shutdown = CancellationToken::new();
+        let worker = tokio::spawn(cja::jobs::worker::job_worker(
+            state,
+            Jobs,
+            Duration::from_millis(50),
+            0,
+            shutdown.clone(),
+            cja::jobs::JobWorkerConfig::default(),
+        ));
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let count: i64 =
+                    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE name = 'ProcessMentions'")
+                        .fetch_one(&pool)
+                        .await
+                        .unwrap();
+                if count == 0 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("worker did not claim and finish queued job");
+        shutdown.cancel();
+        worker.await.unwrap().unwrap();
+    }
+}

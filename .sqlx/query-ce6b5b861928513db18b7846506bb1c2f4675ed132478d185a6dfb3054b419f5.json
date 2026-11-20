@@ -6,27 +6,57 @@
       {
         "ordinal": 0,
         "name": "rkey",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "rkey"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "caption",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "caption"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "collected_on",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "collected_on"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "removed_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "removed_at"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "removed_by",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "removed_by"
+          }
+        }
       }
     ],
     "parameters": {

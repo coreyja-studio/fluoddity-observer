@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "rkey",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "rkey"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "caption",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "caption"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "collected_on",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "collected_on"
+          }
+        }
       }
     ],
     "parameters": {

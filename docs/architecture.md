@@ -65,9 +65,8 @@ until the request evidence supports it.
 
 The boot manifest declares eight metrics and `gallery-operations`: request
 volume/routes/p95, room-fetch p95, cache outcomes, and Bluesky call counts/p95.
-Deployments embed their git SHA. Subscriber 0.8.1 uses batching on Fly so low
-volume traces flush without waiting for another request. These additions use
-passive telemetry; they add no external probes or process-liveness requirement.
+Deployments embed their git SHA. The cja tracing stack flushes Eyes and PostHog telemetry on graceful shutdown.
+During Blink shadowing, Eyes remains the monitoring source of truth.
 
 ## Media
 
@@ -113,11 +112,10 @@ blessing, and deleted on his word like everything else.
 
 ## Background work
 
-The Eyes boot manifest includes the job and cron registry. When `PCG_PUBLIC_URL`
-is configured, it also declares an external HTTP check of the homepage. That
-check covers the public page response; background processing still needs process
-role declarations before run-health alerts are armed. Both the direct tracing
-layer and cja use the same eyes-subscriber 0.8 release.
+The single `serve` process sends complete Eyes and PostHog boot manifests from
+the same job and cron registry. `PCG_PUBLIC_URL` adds the `homepage` HTTP monitor
+to both. Blink reads the `cja_manifest` PostHog event and cja OTLP logs while
+Eyes continues to monitor the app during the shadow week.
 
 `cron.rs` registers tickers on the cja cron worker; each tick enqueues a
 durable job (`jobs.rs`) with retries and a dead-letter queue, so a slow poll
@@ -148,7 +146,8 @@ cannot filter by mention. Bot crons only register when `PCG_BOT_HANDLE` /
 
 ## Deploy
 
-Fly.io app `paperclips-gallery` (ewr) + Fly Postgres; pushes to `main`
-deploy production via GitHub Actions. CI: fmt, clippy (`-D warnings`),
-SQLx prepare-check and tests against a Postgres service, cargo-deny,
-conventional-commit titles.
+The `fluoddity` service runs on attic. `.github/workflows/attic.yml` builds
+the image; a separate infra digest pin deploys it. CI checks fmt, clippy
+(`-D warnings`), SQLx prepare, tests, cargo-deny, a Docker build, and PR titles.
+Vendored cja migrations use `2026…` filenames; app migrations keep the `00NN_`
+sequence. SQLx applies later app versions out of order on existing databases.

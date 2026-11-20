@@ -50,6 +50,7 @@ pub struct AppState {
     pub media_mode: MediaMode,
     /// Pull-zone base URL in front of the vault; `None` = Bluesky CDN only.
     pub media_base: Option<String>,
+    pub public_url: Option<String>,
     /// Vault upload credentials — the masters upload needs them; serving
     /// doesn't.
     pub bunny: Option<StdArc<storage::BunnyConfig>>,
@@ -71,6 +72,19 @@ impl cja::app_state::AppState for AppState {
 
     fn cookie_key(&self) -> &cja::server::cookies::CookieKey {
         &self.cookie_key
+    }
+
+    fn eyes_base_url(&self) -> Option<&str> {
+        self.public_url.as_deref()
+    }
+
+    fn eyes_http_monitors(&self) -> Vec<cja::app_state::HttpMonitor> {
+        self.public_url.as_ref().map_or_else(Vec::new, |_| {
+            vec![
+                cja::app_state::HttpMonitor::new("homepage", "/")
+                    .method(cja::app_state::HttpMethod::Get),
+            ]
+        })
     }
 }
 
@@ -293,7 +307,7 @@ async fn ingest_once(pool: PgPool) -> anyhow::Result<()> {
 
 /// Cold storage: download original blobs the local archive is missing
 /// (live-ingested specimens) from the artist's PDS. Run where the media
-/// dir lives — the Fly machines have no volume.
+/// dir lives; the attic container has no mounted media volume.
 async fn pull_media(pool: PgPool) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
@@ -616,6 +630,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         pool,
         media_mode,
         media_base,
+        public_url: std::env::var("PCG_PUBLIC_URL").ok(),
         bunny,
         http: http.clone(),
         oauth: StdArc::new(oauth),
@@ -633,11 +648,21 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     // Report our job + cron surface area to the Eyes observatory. No-op
     // unless EYES_ORG_ID / EYES_APP_ID are set in the environment.
-    let manifest = cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
-        Some(env!("CARGO_PKG_VERSION")),
-        observability::git_sha(),
-        Some(&cron_registry),
-    );
+    let manifest = if state.public_url.is_some() {
+        cja::eyes_manifest::build_boot_manifest_from_state::<jobs::Jobs, AppState>(
+            &state,
+            Some(env!("CARGO_PKG_VERSION")),
+            observability::git_sha(),
+            Some(&cron_registry),
+        )
+        .map_err(anyhow::Error::new)?
+    } else {
+        cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
+            Some(env!("CARGO_PKG_VERSION")),
+            observability::git_sha(),
+            Some(&cron_registry),
+        )
+    };
     let declarations = cja::observability::Declarations {
         metrics: observability::metrics().map_err(anyhow::Error::msg)?,
         dashboards: vec![observability::dashboard().map_err(anyhow::Error::msg)?],
@@ -646,19 +671,24 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
     let manifest = declarations
         .attach_to_eyes_manifest(manifest)
         .map_err(anyhow::Error::msg)?;
-    let manifest = if let Ok(base_url) = std::env::var("PCG_PUBLIC_URL") {
-        manifest
-            .base_url(base_url)
-            .monitors(vec![cja::app_state::HttpMonitor::new("homepage", "/")])
-    } else {
-        manifest
-    };
     cja::eyes_manifest::send_manifest(manifest);
 
-    // The supervisor registers SIGTERM + SIGINT (Fly sends SIGINT by
-    // default), owns the shutdown token, and bounds the drain. The default
-    // budget (2s job drain + 2s exit grace) fits Fly's default 5s
-    // `kill_timeout`; fly.toml does not raise it.
+    let timezone = cja::jiff::tz::TimeZone::UTC;
+    let mut posthog = cja::posthog_manifest::BootManifest::new(
+        "paperclips-gallery",
+        &cron_registry,
+        &timezone,
+        &[],
+        &[],
+    );
+    if let Some(sha) = observability::git_sha() {
+        posthog = posthog.git_sha(sha);
+    }
+    cja::posthog_manifest::emit_boot_manifest::<jobs::Jobs, AppState>(&state, &posthog)
+        .map_err(anyhow::Error::new)?;
+
+    // The supervisor owns SIGTERM/SIGINT and the worker drain. Its budget plus
+    // telemetry flush must fit the attic Compose stop grace period.
     let mut supervisor = Supervisor::new(ShutdownBudget::from_env()).map_err(to_anyhow)?;
     let shutdown = supervisor.shutdown_token();
 
