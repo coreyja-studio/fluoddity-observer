@@ -1,6 +1,6 @@
 //! Request and dependency evidence for diagnosing public-page latency.
 use axum::{extract::MatchedPath, http::Request};
-use eyes_subscriber::{
+use cja::eyes_manifest::{
     AggregateFunction as Agg, DashboardItem as Item, DashboardSection as Section, NamedDashboard,
     NamedMetric, NamedMetricBuilder as Metric,
 };

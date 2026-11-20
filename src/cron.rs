@@ -63,6 +63,6 @@ pub async fn run_cron(
     registry: CronRegistry<AppState>,
     shutdown: cja::jobs::CancellationToken,
 ) -> cja::Result<()> {
-    Worker::new(state, registry).run(shutdown).await?;
+    Worker::new(state, registry).run(shutdown).await;
     Ok(())
 }

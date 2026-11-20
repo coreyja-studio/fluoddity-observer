@@ -238,7 +238,7 @@ fn media_dir() -> String {
 /// because our console logs must stay on stderr (cja's go to stdout).
 ///
 /// Returns the eyes flush handle; `None` when eyes is not configured.
-fn init_tracing() -> anyhow::Result<Option<eyes_subscriber::EyesShutdownHandle>> {
+fn init_tracing() -> anyhow::Result<Option<cja::setup::EyesShutdownHandle>> {
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
 
@@ -252,7 +252,7 @@ fn init_tracing() -> anyhow::Result<Option<eyes_subscriber::EyesShutdownHandle>>
             let app_id = uuid::Uuid::parse_str(&app_id)
                 .map_err(|e| anyhow::anyhow!("invalid EYES_APP_ID: {e}"))?;
             let (layer, handle) =
-                eyes_subscriber::EyesSubscriberBuilder::build_from_env(org_id, app_id)
+                cja::eyes_manifest::EyesSubscriberBuilder::build_from_env(org_id, app_id)
                     .map_err(|e| anyhow::anyhow!("building eyes subscriber: {e}"))?;
             (Some(layer), Some(handle))
         }
