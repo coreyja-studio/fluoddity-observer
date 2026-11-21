@@ -6,17 +6,35 @@
       {
         "ordinal": 0,
         "name": "did",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "curators",
+            "name": "did"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "handle",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "curators",
+            "name": "handle"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "role",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "curators",
+            "name": "role"
+          }
+        }
       }
     ],
     "parameters": {

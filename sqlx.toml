@@ -1,0 +1,8 @@
+# Decode PostgreSQL date and time columns through cja's jiff wrappers.
+[macros.type-overrides]
+'TIMESTAMPTZ' = "cja::jiff_sqlx::Timestamp"
+'TIMESTAMP' = "cja::jiff_sqlx::DateTime"
+'DATE' = "cja::jiff_sqlx::Date"
+'TIME' = "cja::jiff_sqlx::Time"
+'TIMESTAMPTZ[]' = "Vec<cja::jiff_sqlx::Timestamp>"
+'DATE[]' = "Vec<cja::jiff_sqlx::Date>"

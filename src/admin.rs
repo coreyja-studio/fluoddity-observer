@@ -315,7 +315,7 @@ pub async fn dashboard(
                         div .admin-specimen {
                             a href=(format!("/specimen/{}", r.rkey)) { (r.label()) }
                             span .admin-date {
-                                "removed " (r.removed_at.format("%Y-%m-%d %H:%M UTC"))
+                                "removed " (r.removed_at.strftime("%Y-%m-%d %H:%M UTC"))
                                 @if let Some(by) = &r.removed_by { " · by " (by) }
                             }
                             form method="post" action="/admin/specimens/restore" .inline-form {

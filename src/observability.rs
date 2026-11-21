@@ -1,8 +1,7 @@
 //! Request and dependency evidence for diagnosing public-page latency.
 use axum::{extract::MatchedPath, http::Request};
-use eyes_subscriber::{
-    AggregateFunction as Agg, DashboardItem as Item, DashboardSection as Section, NamedDashboard,
-    NamedMetric, NamedMetricBuilder as Metric,
+use cja::observability::{
+    AggregateFunction as Agg, Dashboard, Item, Metric, Section, TelemetryMetricBuilder,
 };
 use tower_http::trace::MakeSpan;
 
@@ -32,21 +31,21 @@ pub fn git_sha() -> Option<&'static str> {
     option_env!("PCG_GIT_SHA").filter(|sha| !sha.is_empty())
 }
 
-fn count(id: &str, title: &str, path: &str, value: &str) -> Result<Metric, String> {
-    Metric::new(id, Agg::Count, None)?
+fn count(id: &str, title: &str, path: &str, value: &str) -> Result<TelemetryMetricBuilder, String> {
+    TelemetryMetricBuilder::new(id, Agg::Count, None)?
         .display_name(title)
         .filter_eq(path, value)
 }
 
-fn latency(id: &str, title: &str, path: &str, value: &str) -> Result<NamedMetric, String> {
-    Metric::new(id, Agg::P95, Some("duration"))?
+fn latency(id: &str, title: &str, path: &str, value: &str) -> Result<Metric, String> {
+    TelemetryMetricBuilder::new(id, Agg::P95, Some("duration"))?
         .display_name(title)
         .filter_eq(path, value)?
         .unit("µs")
         .build()
 }
 
-pub fn metrics() -> Result<Vec<NamedMetric>, String> {
+pub fn metrics() -> Result<Vec<Metric>, String> {
     Ok(vec![
         count("http.requests", "Requests", "semantic_kind", "http.request")?
             .unit("requests")
@@ -108,33 +107,31 @@ pub fn metrics() -> Result<Vec<NamedMetric>, String> {
     ])
 }
 
-pub fn dashboard() -> Result<NamedDashboard, String> {
-    Ok(
-        NamedDashboard::new("gallery-operations", "Gallery operations")?
-            .description("Public-page traffic, room cache behavior and Bluesky dependency latency.")
-            .default_range_seconds(86_400)
-            .section(
-                Section::new()
-                    .title("At a glance")
-                    .item(Item::health_summary())
-                    .item(Item::stat("http.requests"))
-                    .item(Item::stat("http.latency.p95")),
-            )
-            .section(
-                Section::new()
-                    .title("Requests")
-                    .item(Item::time_series("http.requests.series"))
-                    .item(Item::table("http.routes")),
-            )
-            .section(
-                Section::new()
-                    .title("Rooms and Bluesky")
-                    .item(Item::stat("threads.latency.p95"))
-                    .item(Item::stat("bluesky.latency.p95"))
-                    .item(Item::table("threads.cache"))
-                    .item(Item::table("bluesky.requests")),
-            ),
-    )
+pub fn dashboard() -> Result<Dashboard, String> {
+    Ok(Dashboard::new("gallery-operations", "Gallery operations")?
+        .description("Public-page traffic, room cache behavior and Bluesky dependency latency.")
+        .default_range_seconds(86_400)
+        .section(
+            Section::new()
+                .title("At a glance")
+                .item(Item::health_summary())
+                .item(Item::stat("http.requests"))
+                .item(Item::stat("http.latency.p95")),
+        )
+        .section(
+            Section::new()
+                .title("Requests")
+                .item(Item::time_series("http.requests.series"))
+                .item(Item::table("http.routes")),
+        )
+        .section(
+            Section::new()
+                .title("Rooms and Bluesky")
+                .item(Item::stat("threads.latency.p95"))
+                .item(Item::stat("bluesky.latency.p95"))
+                .item(Item::table("threads.cache"))
+                .item(Item::table("bluesky.requests")),
+        ))
 }
 
 #[cfg(test)]

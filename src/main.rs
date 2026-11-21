@@ -50,6 +50,7 @@ pub struct AppState {
     pub media_mode: MediaMode,
     /// Pull-zone base URL in front of the vault; `None` = Bluesky CDN only.
     pub media_base: Option<String>,
+    pub public_url: Option<String>,
     /// Vault upload credentials — the masters upload needs them; serving
     /// doesn't.
     pub bunny: Option<StdArc<storage::BunnyConfig>>,
@@ -71,6 +72,19 @@ impl cja::app_state::AppState for AppState {
 
     fn cookie_key(&self) -> &cja::server::cookies::CookieKey {
         &self.cookie_key
+    }
+
+    fn eyes_base_url(&self) -> Option<&str> {
+        self.public_url.as_deref()
+    }
+
+    fn eyes_http_monitors(&self) -> Vec<cja::app_state::HttpMonitor> {
+        self.public_url.as_ref().map_or_else(Vec::new, |_| {
+            vec![
+                cja::app_state::HttpMonitor::new("homepage", "/")
+                    .method(cja::app_state::HttpMethod::Get),
+            ]
+        })
     }
 }
 
@@ -232,57 +246,39 @@ fn media_dir() -> String {
         .unwrap_or_else(|_| "/home/coreyja.linux/paperclips-media/oops".to_string())
 }
 
-/// Console logs plus an optional eyes layer (https://eyes.coreyja.com),
-/// activated by `EYES_ORG_ID` + `EYES_APP_ID` (`EYES_URL` overrides the
-/// server) — the same env contract as cja's `setup_tracing`, wired by hand
-/// because our console logs must stay on stderr (cja's go to stdout).
-///
-/// Returns the eyes flush handle; `None` when eyes is not configured.
-fn init_tracing() -> anyhow::Result<Option<eyes_subscriber::EyesShutdownHandle>> {
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-
-    let (eyes_layer, eyes_handle) = match (
-        std::env::var("EYES_ORG_ID").ok(),
-        std::env::var("EYES_APP_ID").ok(),
-    ) {
-        (Some(org_id), Some(app_id)) => {
-            let org_id = uuid::Uuid::parse_str(&org_id)
-                .map_err(|e| anyhow::anyhow!("invalid EYES_ORG_ID: {e}"))?;
-            let app_id = uuid::Uuid::parse_str(&app_id)
-                .map_err(|e| anyhow::anyhow!("invalid EYES_APP_ID: {e}"))?;
-            let (layer, handle) =
-                eyes_subscriber::EyesSubscriberBuilder::build_from_env(org_id, app_id)
-                    .map_err(|e| anyhow::anyhow!("building eyes subscriber: {e}"))?;
-            (Some(layer), Some(handle))
-        }
-        _ => (None, None),
-    };
-
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        // Logs on stderr; stdout stays clean for subcommand output
-        // (gen-oauth-key prints the key).
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
-        .with(eyes_layer)
-        .init();
-
-    Ok(eyes_handle)
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // The eyes worker spawns onto this runtime — init inside the async context.
-    let eyes_handle = init_tracing()?;
+    // This command produces one key on stdout and needs neither a database nor telemetry.
+    if std::env::args().nth(1).as_deref() == Some("gen-oauth-key") {
+        println!("{}", auth::generate_private_key()?);
+        return Ok(());
+    }
 
+    let telemetry = cja::setup::TracingConfig::new("paperclips-gallery")
+        .version(env!("CARGO_PKG_VERSION"))
+        .stdout_layer(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .init()
+        .map_err(to_anyhow)?;
+    let result = run_command().await;
+    if let Err(err) = &result {
+        tracing::error!(error = %format_args!("{err:#}"), "command failed");
+    }
+    let flush = telemetry.shutdown().await.map_err(to_anyhow);
+    if result.is_ok() {
+        flush?;
+    } else if let Err(err) = flush {
+        eprintln!("telemetry flush failed: {err:#}");
+    }
+    result
+}
+
+async fn run_command() -> anyhow::Result<()> {
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| anyhow::anyhow!("DATABASE_URL must be set (see .mise.toml)"))?;
     let pool = PgPool::connect(&database_url).await?;
     sqlx::migrate!().run(&pool).await?;
 
-    let result = match std::env::args().nth(1).as_deref() {
+    match std::env::args().nth(1).as_deref() {
         None | Some("serve") => serve(pool).await,
         Some("import") => import(pool).await,
         Some("ingest-once") => ingest_once(pool).await,
@@ -293,24 +289,10 @@ async fn main() -> anyhow::Result<()> {
         Some("gen-posters") => gen_posters(pool).await,
         Some("bot-once") => bot_once(pool).await,
         Some("bot-weekly") => bot_weekly(pool).await,
-        Some("gen-oauth-key") => {
-            println!("{}", auth::generate_private_key()?);
-            Ok(())
-        }
         Some(other) => anyhow::bail!(
             "unknown subcommand {other:?} — expected `serve`, `import`, `ingest-once`, `pull-media`, `refresh-notes`, `harvest-once`, `classify-dimensions`, `gen-posters`, `bot-once`, `bot-weekly`, or `gen-oauth-key`"
         ),
-    };
-
-    // Flush buffered telemetry — one-shot subcommands would otherwise drop
-    // whatever the eyes worker hadn't sent yet.
-    if let Some(handle) = eyes_handle
-        && let Err(err) = handle.shutdown().await
-    {
-        eprintln!("eyes telemetry flush failed: {err}");
     }
-
-    result
 }
 
 /// One manual poll of the artist's feed — useful for cron or debugging.
@@ -325,7 +307,7 @@ async fn ingest_once(pool: PgPool) -> anyhow::Result<()> {
 
 /// Cold storage: download original blobs the local archive is missing
 /// (live-ingested specimens) from the artist's PDS. Run where the media
-/// dir lives — the Fly machines have no volume.
+/// dir lives; the attic container has no mounted media volume.
 async fn pull_media(pool: PgPool) -> anyhow::Result<()> {
     let client = reqwest::Client::builder()
         .user_agent("paperclips-gallery/0.1 (fluoddity field guide)")
@@ -648,6 +630,7 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
         pool,
         media_mode,
         media_base,
+        public_url: std::env::var("PCG_PUBLIC_URL").ok(),
         bunny,
         http: http.clone(),
         oauth: StdArc::new(oauth),
@@ -665,26 +648,47 @@ async fn serve(pool: PgPool) -> anyhow::Result<()> {
 
     // Report our job + cron surface area to the Eyes observatory. No-op
     // unless EYES_ORG_ID / EYES_APP_ID are set in the environment.
-    let mut manifest = cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
-        Some(env!("CARGO_PKG_VERSION")),
-        observability::git_sha(),
-        Some(&cron_registry),
-    )
-    .metrics(observability::metrics().map_err(anyhow::Error::msg)?)
-    .dashboards(vec![
-        observability::dashboard().map_err(anyhow::Error::msg)?,
-    ]);
-    if let Ok(base_url) = std::env::var("PCG_PUBLIC_URL") {
-        manifest = manifest
-            .base_url(base_url)
-            .monitors(vec![cja::eyes_manifest::HttpMonitor::new("homepage", "/")]);
-    }
+    let manifest = if state.public_url.is_some() {
+        cja::eyes_manifest::build_boot_manifest_from_state::<jobs::Jobs, AppState>(
+            &state,
+            Some(env!("CARGO_PKG_VERSION")),
+            observability::git_sha(),
+            Some(&cron_registry),
+        )
+        .map_err(anyhow::Error::new)?
+    } else {
+        cja::eyes_manifest::build_boot_manifest::<jobs::Jobs, AppState>(
+            Some(env!("CARGO_PKG_VERSION")),
+            observability::git_sha(),
+            Some(&cron_registry),
+        )
+    };
+    let declarations = cja::observability::Declarations {
+        metrics: observability::metrics().map_err(anyhow::Error::msg)?,
+        dashboards: vec![observability::dashboard().map_err(anyhow::Error::msg)?],
+        alerts: vec![],
+    };
+    let manifest = declarations
+        .attach_to_eyes_manifest(manifest)
+        .map_err(anyhow::Error::msg)?;
     cja::eyes_manifest::send_manifest(manifest);
 
-    // The supervisor registers SIGTERM + SIGINT (Fly sends SIGINT by
-    // default), owns the shutdown token, and bounds the drain. The default
-    // budget (2s job drain + 2s exit grace) fits Fly's default 5s
-    // `kill_timeout`; fly.toml does not raise it.
+    let timezone = cja::jiff::tz::TimeZone::UTC;
+    let mut posthog = cja::posthog_manifest::BootManifest::new(
+        "paperclips-gallery",
+        &cron_registry,
+        &timezone,
+        &[],
+        &[],
+    );
+    if let Some(sha) = observability::git_sha() {
+        posthog = posthog.git_sha(sha);
+    }
+    cja::posthog_manifest::emit_boot_manifest::<jobs::Jobs, AppState>(&state, &posthog)
+        .map_err(anyhow::Error::new)?;
+
+    // The supervisor owns SIGTERM/SIGINT and the worker drain. Its budget plus
+    // telemetry flush must fit the attic Compose stop grace period.
     let mut supervisor = Supervisor::new(ShutdownBudget::from_env()).map_err(to_anyhow)?;
     let shutdown = supervisor.shutdown_token();
 

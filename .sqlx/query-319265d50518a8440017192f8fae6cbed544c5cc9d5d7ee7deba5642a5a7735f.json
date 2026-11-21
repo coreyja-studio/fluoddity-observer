@@ -6,12 +6,24 @@
       {
         "ordinal": 0,
         "name": "suggestion_id",
-        "type_info": "Int8"
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "suggestion_id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "tag",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "tag"
+          }
+        }
       }
     ],
     "parameters": {

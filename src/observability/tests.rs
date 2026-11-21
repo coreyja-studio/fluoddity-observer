@@ -1,6 +1,7 @@
 use super::*;
 use crate::threads::ThreadFetcher;
 use axum::{Json, Router, body::Body, extract::State, http::StatusCode, routing::get};
+use cja::observability::Declarations;
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -255,17 +256,30 @@ async fn dependency_failures_and_missing_threads_retain_their_status_evidence() 
 #[test]
 fn operations_dashboard_references_declared_metrics() {
     let metrics = metrics().unwrap();
-    let dashboard = serde_json::to_value(dashboard().unwrap()).unwrap();
+    let dashboard = dashboard().unwrap();
     assert_eq!(metrics.len(), 8);
     let names: Vec<_> = metrics.iter().map(|m| m.id.as_str()).collect();
     let mut references = 0;
-    for section in dashboard["sections"].as_array().unwrap() {
-        for item in section["items"].as_array().unwrap() {
-            if let Some(id) = item.get("query_id").and_then(Value::as_str) {
-                assert!(names.contains(&id), "{id}");
+    for section in &dashboard.sections {
+        for item in &section.items {
+            let metric_id = match item {
+                Item::Stat { metric_id, .. }
+                | Item::TimeSeries { metric_id, .. }
+                | Item::Table { metric_id, .. } => Some(metric_id),
+                Item::HealthSummary { .. } | Item::Links { .. } => None,
+            };
+            if let Some(id) = metric_id {
+                assert!(names.contains(&id.as_str()), "{id}");
                 references += 1;
             }
         }
     }
     assert_eq!(references, 8);
+    let declarations = Declarations::new().dashboard(dashboard);
+    let declarations = metrics.into_iter().fold(declarations, Declarations::metric);
+    let manifest = declarations
+        .attach_to_eyes_manifest(cja::eyes_manifest::AppManifest::default())
+        .unwrap();
+    assert_eq!(manifest.metrics.as_ref().unwrap().len(), 8);
+    assert_eq!(manifest.dashboards.as_ref().unwrap().len(), 1);
 }

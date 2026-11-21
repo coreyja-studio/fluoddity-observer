@@ -370,13 +370,13 @@ pub fn extract_hashtags(text: &str) -> Vec<String> {
 /// either date fails to parse.
 pub fn days_between(earlier: &str, later: &str) -> String {
     let (Ok(a), Ok(b)) = (
-        chrono::NaiveDate::parse_from_str(earlier, "%Y-%m-%d"),
-        chrono::NaiveDate::parse_from_str(later, "%Y-%m-%d"),
+        cja::jiff::civil::Date::strptime("%Y-%m-%d", earlier),
+        cja::jiff::civil::Date::strptime("%Y-%m-%d", later),
     ) else {
         return String::new();
     };
-    match (b - a).num_days() {
-        i64::MIN..=0 => "later that day".to_string(),
+    match (b - a).get_days() {
+        i32::MIN..=0 => "later that day".to_string(),
         1 => "the next day".to_string(),
         n => format!("{n} days pass"),
     }

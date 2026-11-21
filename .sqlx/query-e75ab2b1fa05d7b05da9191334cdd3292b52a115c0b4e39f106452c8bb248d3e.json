@@ -6,32 +6,68 @@
       {
         "ordinal": 0,
         "name": "suggestion_id",
-        "type_info": "Int8"
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "suggestion_id"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "rkey",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "rkey"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "tag",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "tag"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "suggester_handle",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "suggester_handle"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "suggester_did",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "suggester_did"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "via",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tag_suggestions",
+            "name": "via"
+          }
+        }
       }
     ],
     "parameters": {

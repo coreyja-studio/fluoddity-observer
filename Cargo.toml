@@ -15,12 +15,8 @@ atrium-xrpc = "0.12"
 axum = { version = "0.8", features = ["multipart"] }
 axum-extra = { version = "0.10", features = ["cookie", "form"] }
 base64 = "0.22"
-chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
-cja = { git = "https://github.com/coreyja/cja", rev = "319274e874cbaed79054012453e3922535ff445e" }
+cja = { git = "https://github.com/coreyja/cja", rev = "53b5154c7c10c86dce0a46689d3f89a793b78c20" }
 elliptic-curve = { version = "0.13", features = ["jwk", "pem", "std"] }
-# Same version cja pins — the layer is wired directly here because this app
-# keeps its own stderr logger (see init_tracing in main.rs).
-eyes-subscriber = "0.8"
 jose-jwk = "0.1"
 maud = { version = "0.27", features = ["axum"] }
 p256 = { version = "0.13", features = ["pem", "jwk"] }
@@ -29,7 +25,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "migrate", "macros"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "sqlx-toml"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }

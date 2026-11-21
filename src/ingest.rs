@@ -4,6 +4,7 @@
 //! Bluesky CDNs — visible on the next page load, no restart, no downloads.
 
 use anyhow::Context;
+use cja::jiff_sqlx::ToSqlx as _;
 use sqlx::PgPool;
 
 const PUBLIC_API: &str = "https://public.api.bsky.app";
@@ -112,7 +113,7 @@ pub async fn poll_once(pool: &PgPool, client: &reqwest::Client) -> anyhow::Resul
     let discovered = parse_feed(&feed, &meta.artist_did, &meta.artist_handle);
     let mut added = Vec::new();
     for d in &discovered {
-        let collected_on = chrono::NaiveDate::parse_from_str(&d.collected_on, "%Y-%m-%d")
+        let collected_on = cja::jiff::civil::Date::strptime("%Y-%m-%d", &d.collected_on)
             .with_context(|| format!("bad createdAt on {}", d.rkey))?;
         let inserted = sqlx::query!(
             "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)
@@ -122,7 +123,7 @@ pub async fn poll_once(pool: &PgPool, client: &reqwest::Client) -> anyhow::Resul
             d.cid,
             d.kind,
             d.caption,
-            collected_on,
+            collected_on.to_sqlx(),
             d.url,
         )
         .execute(pool)
@@ -254,7 +255,7 @@ mod tests {
         let discovered = parse_feed(&fixture(), ARTIST_DID, ARTIST_HANDLE);
         for d in &discovered {
             let collected_on =
-                chrono::NaiveDate::parse_from_str(&d.collected_on, "%Y-%m-%d").unwrap();
+                cja::jiff::civil::Date::strptime("%Y-%m-%d", &d.collected_on).unwrap();
             sqlx::query!(
                 "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)
                  VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (rkey) DO NOTHING",
@@ -262,7 +263,7 @@ mod tests {
                 d.cid,
                 d.kind,
                 d.caption,
-                collected_on,
+                collected_on.to_sqlx(),
                 d.url,
             )
             .execute(&pool)
@@ -332,7 +333,7 @@ mod tests {
                 continue;
             }
             let collected_on =
-                chrono::NaiveDate::parse_from_str(&d.collected_on, "%Y-%m-%d").unwrap();
+                cja::jiff::civil::Date::strptime("%Y-%m-%d", &d.collected_on).unwrap();
             sqlx::query!(
                 "INSERT INTO specimens (rkey, cid, kind, caption, collected_on, url)
                  VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (rkey) DO NOTHING",
@@ -340,7 +341,7 @@ mod tests {
                 d.cid,
                 d.kind,
                 d.caption,
-                collected_on,
+                collected_on.to_sqlx(),
                 d.url,
             )
             .execute(&pool)

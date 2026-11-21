@@ -12,6 +12,7 @@
 //! ever need to react to posts that don't mention us.
 
 use anyhow::Context;
+use cja::jiff_sqlx::ToSqlx as _;
 use sqlx::PgPool;
 
 use crate::threads::{ThreadFetcher, ThreadRoom};
@@ -363,7 +364,7 @@ pub async fn poll_once(
         let mut record = serde_json::json!({
             "$type": "app.bsky.feed.post",
             "text": text,
-            "createdAt": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "createdAt": atproto_timestamp(),
             "reply": {
                 "root": {"uri": ask.root_uri, "cid": ask.root_cid},
                 "parent": {"uri": ask.mention_uri, "cid": ask.mention_cid},
@@ -408,7 +409,7 @@ pub async fn poll_once(
         .post(format!("{}/xrpc/app.bsky.notification.updateSeen", cfg.pds))
         .bearer_auth(&session.access_jwt)
         .json(&serde_json::json!({
-            "seenAt": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "seenAt": atproto_timestamp(),
         }))
         .send()
         .await;
@@ -605,6 +606,18 @@ mod tests {
 // silent or nothing drew a like — the gallery must never read as a content
 // quota.
 
+fn atproto_timestamp() -> String {
+    // ATProto post timestamps retain the existing millisecond UTC wire format.
+    let now = cja::jiff::Timestamp::now();
+    let millis = now.as_millisecond();
+    let truncated =
+        cja::jiff::Timestamp::from_millisecond(millis).expect("current timestamp is valid");
+    format!(
+        "{}.{:03}Z",
+        truncated.strftime("%Y-%m-%dT%H:%M:%S"),
+        millis.rem_euclid(1000)
+    )
+}
 const WEEKLY_MAX_PICKS: usize = 3;
 
 /// A specimen that made the week's wrap-up.
@@ -619,11 +632,13 @@ pub struct WeeklyPick {
 }
 
 /// The last completed Monday..=Sunday week strictly before `today`.
-pub fn last_completed_week(today: chrono::NaiveDate) -> (chrono::NaiveDate, chrono::NaiveDate) {
-    use chrono::Datelike as _;
-    let this_monday = today - chrono::Days::new(today.weekday().num_days_from_monday() as u64);
-    let week_start = this_monday - chrono::Days::new(7);
-    (week_start, week_start + chrono::Days::new(6))
+pub fn last_completed_week(
+    today: cja::jiff::civil::Date,
+) -> (cja::jiff::civil::Date, cja::jiff::civil::Date) {
+    use cja::jiff::ToSpan as _;
+    let this_monday = today - today.weekday().to_monday_zero_offset().days();
+    let week_start = this_monday - 7.days();
+    (week_start, week_start + 6.days())
 }
 
 /// Rank a week's specimens: most liked first, ties to the newer post; keep
@@ -691,12 +706,14 @@ pub async fn weekly_once(
     cfg: &BotConfig,
     dry_run: bool,
 ) -> anyhow::Result<Option<usize>> {
-    let today = chrono::Utc::now().date_naive();
+    let today = cja::jiff::Timestamp::now()
+        .to_zoned_datetime(cja::jiff::tz::TimeZone::UTC)
+        .date();
     let (week_start, week_end) = last_completed_week(today);
 
     let already = sqlx::query!(
         "SELECT week_start FROM bot_weekly WHERE week_start = $1",
-        week_start
+        week_start.to_sqlx()
     )
     .fetch_optional(pool)
     .await?
@@ -708,8 +725,8 @@ pub async fn weekly_once(
     let specimens = sqlx::query!(
         "SELECT rkey, caption FROM specimens
          WHERE collected_on BETWEEN $1 AND $2 AND removed_at IS NULL",
-        week_start,
-        week_end,
+        week_start.to_sqlx(),
+        week_end.to_sqlx(),
     )
     .fetch_all(pool)
     .await?;
@@ -790,7 +807,7 @@ pub async fn weekly_once(
     }
 
     let session = login(client, cfg).await?;
-    let now = || chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let now = || atproto_timestamp();
     let post = |record: serde_json::Value| {
         let client = client.clone();
         let pds = cfg.pds.clone();
@@ -847,7 +864,7 @@ pub async fn weekly_once(
     sqlx::query!(
         "INSERT INTO bot_weekly (week_start, root_uri) VALUES ($1, $2)
          ON CONFLICT (week_start) DO NOTHING",
-        week_start,
+        week_start.to_sqlx(),
         root.0,
     )
     .execute(pool)
@@ -871,17 +888,26 @@ mod weekly_tests {
     }
 
     #[test]
+    fn atproto_time_is_utc_with_three_fractional_digits() {
+        let value = atproto_timestamp();
+        assert!(value.ends_with('Z'));
+        let fractional = value.trim_end_matches('Z').rsplit('.').next().unwrap();
+        assert_eq!(fractional.len(), 3);
+        assert!(fractional.bytes().all(|byte| byte.is_ascii_digit()));
+    }
+
+    #[test]
     fn weeks_are_monday_through_sunday_and_completed() {
         // Wednesday 2026-07-01 → previous week Mon 22 Jun ..= Sun 28 Jun.
-        let today = chrono::NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let today = cja::jiff::civil::Date::new(2026, 7, 1).unwrap();
         let (start, end) = last_completed_week(today);
-        assert_eq!(start, chrono::NaiveDate::from_ymd_opt(2026, 6, 22).unwrap());
-        assert_eq!(end, chrono::NaiveDate::from_ymd_opt(2026, 6, 28).unwrap());
+        assert_eq!(start, cja::jiff::civil::Date::new(2026, 6, 22).unwrap());
+        assert_eq!(end, cja::jiff::civil::Date::new(2026, 6, 28).unwrap());
         // A Monday wraps the week that just ended yesterday.
-        let monday = chrono::NaiveDate::from_ymd_opt(2026, 7, 6).unwrap();
+        let monday = cja::jiff::civil::Date::new(2026, 7, 6).unwrap();
         let (start, end) = last_completed_week(monday);
-        assert_eq!(start, chrono::NaiveDate::from_ymd_opt(2026, 6, 29).unwrap());
-        assert_eq!(end, chrono::NaiveDate::from_ymd_opt(2026, 7, 5).unwrap());
+        assert_eq!(start, cja::jiff::civil::Date::new(2026, 6, 29).unwrap());
+        assert_eq!(end, cja::jiff::civil::Date::new(2026, 7, 5).unwrap());
     }
 
     #[test]

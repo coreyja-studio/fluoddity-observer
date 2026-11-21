@@ -6,52 +6,112 @@
       {
         "ordinal": 0,
         "name": "rkey",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "rkey"
+          }
+        }
       },
       {
         "ordinal": 1,
         "name": "cid",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "cid"
+          }
+        }
       },
       {
         "ordinal": 2,
         "name": "kind",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "kind"
+          }
+        }
       },
       {
         "ordinal": 3,
         "name": "file",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "file"
+          }
+        }
       },
       {
         "ordinal": 4,
         "name": "pds_key",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "pds_key"
+          }
+        }
       },
       {
         "ordinal": 5,
         "name": "master_key",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "master_key"
+          }
+        }
       },
       {
         "ordinal": 6,
         "name": "og_poster_key",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "og_poster_key"
+          }
+        }
       },
       {
         "ordinal": 7,
         "name": "caption",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "caption"
+          }
+        }
       },
       {
         "ordinal": 8,
         "name": "collected_on",
-        "type_info": "Date"
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "collected_on"
+          }
+        }
       },
       {
         "ordinal": 9,
         "name": "url",
-        "type_info": "Text"
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "specimens",
+            "name": "url"
+          }
+        }
       }
     ],
     "parameters": {

@@ -38,9 +38,23 @@ jobs:
             exit 1
           fi
 
+  docker:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: PCG_GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   ready:
     if: always()
-    needs: [fmt, clippy, test, cargo-deny, pr-title]
+    needs: [fmt, clippy, test, cargo-deny, pr-title, docker]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
@@ -50,3 +64,4 @@ jobs:
           if [[ "${{ needs.test.result }}" != "success" ]]; then exit 1; fi
           if [[ "${{ needs.cargo-deny.result }}" != "success" ]]; then exit 1; fi
           if [[ "${{ needs.pr-title.result }}" != "success" && "${{ needs.pr-title.result }}" != "skipped" ]]; then exit 1; fi
+          if [[ "${{ needs.docker.result }}" != "success" && "${{ needs.docker.result }}" != "skipped" ]]; then exit 1; fi
